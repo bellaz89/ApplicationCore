@@ -81,6 +81,14 @@ namespace ChimeraTK {
         throw ChimeraTK::logic_error(std::string("Error loading Lua script '") + path + "': " + err.what());
       }
     }
+
+    // All scripts have been executed and all C++ module/accessor objects are now owned by mainGroup.
+    // The loading state is no longer needed — free its Lua heap (script globals, string table, etc.)
+    // while leaving all C++ objects alive. Guard against the case where no LuaModules were configured
+    // (loop never ran, _impl was never initialized).
+    if(_impl) {
+      _impl->loadState.reset();
+    }
   }
 
   /********************************************************************************************************************/
@@ -97,9 +105,8 @@ namespace ChimeraTK {
       }
     }
 
-    // Destroy the loading state (which owns the LuaModuleGroup and all child objects).
-    // Wait: mainGroup is separate from loadState, so destroy in order: state first (removes references),
-    // then mainGroup (C++ destructor chain).
+    // loadState may have already been freed by createModules() after all scripts were loaded.
+    // reset() on a null unique_ptr is a no-op, so this is always safe.
     _impl->loadState.reset();
     _impl->mainGroup.reset();
     _impl.reset();

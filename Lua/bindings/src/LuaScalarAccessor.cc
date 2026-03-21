@@ -5,8 +5,6 @@
 
 #include <sol/sol.hpp>
 
-#include <ChimeraTK/NDRegisterAccessor.h>
-
 namespace ChimeraTK {
 
   /********************************************************************************************************************/
@@ -47,8 +45,9 @@ namespace ChimeraTK {
         [&s](auto& acc) -> sol::object {
           using ACC = std::remove_reference_t<decltype(acc)>;
           using T = typename ACC::value_type;
-          auto* impl = boost::dynamic_pointer_cast<NDRegisterAccessor<T>>(acc.getHighLevelImplElement()).get();
-          return sol::make_object(s, T(impl->accessData(0)));
+          // Use operator T() directly on the accessor — avoids getHighLevelImplElement()
+          // and the dynamic_pointer_cast + atomic refcount bumps on every read.
+          return sol::make_object(s, static_cast<T>(acc));
         },
         _accessor);
   }

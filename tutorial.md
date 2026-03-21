@@ -13,7 +13,7 @@ This tutorial walks you through everything you need to build a real-time control
 5. [Writing your first module](#5-writing-your-first-module)
 6. [Structuring larger applications](#6-structuring-larger-applications)
 7. [Connecting modules](#7-connecting-modules)
-8. [The application configuration file](#8-the-application-configuration-file)
+8. [The application configuration file](#8-the-application-configuration-file) — XML format, C++ API, scripted modules
 9. [Testing with TestFacility](#9-testing-with-testfacility)
 10. [Scripting modules (Lua and Python)](#10-scripting-modules-lua-and-python)
 11. [Useful patterns and tips](#11-useful-patterns-and-tips)
@@ -473,36 +473,169 @@ void MyModule::mainLoop() {
 
 ## 8. The application configuration file
 
-See [config.md](config.md) for the full reference.  Key points:
+The configuration file is named `<AppName>-config.xml` and must reside in the working directory from which the application is launched.  It is loaded automatically at startup.
 
-- The file is named `<AppName>-config.xml` and placed in the working directory.
-- Read values from C++ with `appConfig().get<T>("path")`.
-- Arrays use nested `<value i="N" v="..."/>` children.
-- Use `<module name="...">` to namespace variables.
+```
+MyApp-config.xml   ←  loaded when Application("MyApp") is constructed
+```
 
-Quick example — `MyApp-config.xml`:
+### 8.1 XML structure
+
+The document element must be `<configuration>`:
 
 ```xml
 <configuration>
-  <variable name="gain"      type="float"  value="2.0"    />
-  <variable name="maxCycles" type="int32"  value="1000"   />
-  <variable name="label"     type="string" value="Run #1" />
-
-  <module name="PID">
-    <variable name="kP" type="double" value="1.2" />
-    <variable name="kI" type="double" value="0.05" />
-  </module>
+  <!-- variables and modules go here -->
 </configuration>
 ```
 
-Reading in C++:
+#### Scalar variables
+
+```xml
+<variable name="myValue" type="int32" value="42" />
+```
+
+| Attribute | Required | Description |
+|-----------|----------|-------------|
+| `name`    | yes      | Variable name (path component) |
+| `type`    | yes      | Data type (see table below) |
+| `value`   | yes      | The scalar value as a string |
+
+#### Supported types
+
+| XML `type` | C++ type      | Notes                    |
+|------------|---------------|--------------------------|
+| `int8`     | `int8_t`      |                          |
+| `uint8`    | `uint8_t`     |                          |
+| `int16`    | `int16_t`     |                          |
+| `uint16`   | `uint16_t`    |                          |
+| `int32`    | `int32_t`     |                          |
+| `uint32`   | `uint32_t`    |                          |
+| `int64`    | `int64_t`     |                          |
+| `uint64`   | `uint64_t`    |                          |
+| `float`    | `float`       | Also usable as `double`  |
+| `double`   | `double`      |                          |
+| `string`   | `std::string` |                          |
+| `boolean`  | `bool`        | Values: `true` / `false` |
+
+#### Array variables
+
+Omit the `value` attribute and provide `<value>` child elements, one per element:
+
+```xml
+<variable name="myArray" type="float">
+  <value i="0" v="1.0" />
+  <value i="1" v="2.5" />
+  <value i="2" v="3.14" />
+</variable>
+```
+
+| Attribute | Description      |
+|-----------|------------------|
+| `i`       | Zero-based index |
+| `v`       | Element value    |
+
+#### Hierarchical modules (namespacing)
+
+Use `<module name="...">` to group variables under a path prefix.  Nesting is unlimited:
+
+```xml
+<module name="Sensors">
+  <variable name="calibration" type="float" value="1.05" />
+  <module name="Channel1">
+    <variable name="offset" type="int32" value="10" />
+  </module>
+</module>
+```
+
+Variables are accessed with paths `Sensors/calibration`, `Sensors/Channel1/offset`, etc.
+
+### 8.2 Reading values in C++
+
+Include `<ChimeraTK/ApplicationCore/ConfigReader.h>`, or use the `appConfig()` free function available inside any `ApplicationModule::mainLoop()`:
 
 ```cpp
-float  gain = appConfig().get<float>("gain");
-double kP   = appConfig().get<double>("PID/kP");
+auto& cfg = appConfig();
 
-// With a default value (returned when the key is absent):
-int32_t cycles = appConfig().get<int32_t>("maxCycles", 100);
+// Scalar
+float gain = cfg.get<float>("gain");
+
+// With a default (returned when the key is absent)
+int32_t cycles = cfg.get<int32_t>("maxCycles", 100);
+
+// Array
+std::vector<float> lut = cfg.get<std::vector<float>>("lookupTable");
+
+// List sub-module names at a given path
+std::vector<std::string> channels = cfg.getModules("Sensors");
+// → {"Channel1"}
+```
+
+Path rules: separator is `/`; a leading `/` is stripped automatically so `"/foo"` and `"foo"` are equivalent.  Names are case-sensitive.
+
+### 8.3 Reading values from scripts
+
+See §10.5 for the Lua and Python config APIs (`cfg:get(DataType.T, "path")` / `cfg.get(DataType.T, "path")`).
+
+### 8.4 Declaring scripted modules
+
+The `<LuaModules>` and `<PythonModules>` sections tell the framework which scripts to load.  Each `<module>` child specifies one script; see §10.1 for full details.
+
+```xml
+<module name="LuaModules">
+  <module name="Control">
+    <variable name="path" type="string" value="control.lua" />
+  </module>
+</module>
+```
+
+### 8.5 Control system visibility
+
+All variables declared in the config file are automatically published as process variables under `/Configurable/` in the control system hierarchy.  Operators can read (and, for writable variables, modify) them at run time through the standard control-system interface.
+
+### 8.6 Complete example
+
+```xml
+<configuration>
+
+  <!-- Scripted modules -->
+  <module name="LuaModules">
+    <module name="Control">
+      <variable name="path" type="string" value="control.lua" />
+    </module>
+  </module>
+
+  <!-- Scalars at the top level -->
+  <variable name="maxCurrent"  type="float"   value="5.0"    />
+  <variable name="deviceName"  type="string"  value="DEV001" />
+  <variable name="enableDebug" type="boolean" value="false"  />
+
+  <!-- Nested namespace -->
+  <module name="PID">
+    <variable name="kP" type="double" value="1.2"  />
+    <variable name="kI" type="double" value="0.05" />
+    <variable name="kD" type="double" value="0.01" />
+  </module>
+
+  <!-- Array -->
+  <variable name="lookupTable" type="float">
+    <value i="0" v="0.0"  />
+    <value i="1" v="0.25" />
+    <value i="2" v="0.5"  />
+    <value i="3" v="0.75" />
+    <value i="4" v="1.0"  />
+  </variable>
+
+</configuration>
+```
+
+Corresponding C++ reads:
+
+```cpp
+auto& cfg = appConfig();
+float  maxI = cfg.get<float>("maxCurrent");                  // 5.0
+double kP   = cfg.get<double>("PID/kP");                     // 1.2
+auto   lut  = cfg.get<std::vector<float>>("lookupTable");    // 5-element vector
 ```
 
 ---
@@ -1060,7 +1193,6 @@ Leading `/` is always stripped before comparison, so `/Foo` and `Foo` at the roo
 
 ## Further reading
 
-- [config.md](config.md) — Full reference for the `-config.xml` file format
 - [Lua/lua.md](Lua/lua.md) — Complete Lua scripting API reference
 - `example/` — Full working example application (oven temperature controller)
 - `tests/executables_src/` — Comprehensive test suite showing real usage patterns
