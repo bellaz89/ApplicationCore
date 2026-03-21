@@ -57,6 +57,17 @@ Application::Application(const std::string& name) : ApplicationBase(name), Modul
     std::rethrow_exception(std::current_exception());
   }
 #endif
+
+  // Create Lua modules
+#ifdef CHIMERATK_APPLICATION_CORE_WITH_LUA
+  try {
+    _luaModuleManager.createModules(*this);
+  }
+  catch(ChimeraTK::logic_error&) {
+    Application::shutdown();
+    std::rethrow_exception(std::current_exception());
+  }
+#endif
 }
 
 /**********************************************************************************************************************/
@@ -243,6 +254,11 @@ void Application::shutdown() {
 
   // Since the destructor of the Application may come too late, we will de-init the Python system here
   getPythonModuleManager().deinit();
+
+  // Deinit Lua module manager (terminate Lua module threads and release Lua state)
+#ifdef CHIMERATK_APPLICATION_CORE_WITH_LUA
+  getLuaModuleManager().deinit();
+#endif
 
   ApplicationBase::shutdown();
 }

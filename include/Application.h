@@ -15,6 +15,10 @@
 #  include "PythonModuleManager.h"
 #endif
 
+#ifdef CHIMERATK_APPLICATION_CORE_WITH_LUA
+#  include "LuaModuleManager.h"
+#endif
+
 #include <ChimeraTK/ControlSystemAdapter/ApplicationBase.h>
 #include <ChimeraTK/DeviceBackend.h>
 
@@ -188,6 +192,10 @@ namespace ChimeraTK {
     PythonModuleManager& getPythonModuleManager() { return _pythonModuleManager; }
 #endif
 
+#ifdef CHIMERATK_APPLICATION_CORE_WITH_LUA
+    LuaModuleManager& getLuaModuleManager() { return _luaModuleManager; }
+#endif
+
     ConfigReader& getConfigReader() { return *_defaultConfigReader; }
 
    protected:
@@ -277,6 +285,13 @@ namespace ChimeraTK {
      */
 #ifdef CHIMERATK_APPLICATION_CORE_WITH_PYTHON
     PythonModuleManager _pythonModuleManager;
+#endif
+
+    /**
+     * Manager for Lua-based ApplicationModules
+     */
+#ifdef CHIMERATK_APPLICATION_CORE_WITH_LUA
+    LuaModuleManager _luaModuleManager;
 #endif
 
     /// The Application-default config reader instance

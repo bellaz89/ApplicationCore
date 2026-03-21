@@ -1,0 +1,423 @@
+---@meta
+-- SPDX-FileCopyrightText: Deutsches Elektronen-Synchrotron DESY, MSK, ChimeraTK Project <chimeratk-support@desy.de>
+-- SPDX-License-Identifier: LGPL-3.0-or-later
+--
+-- EmmyLua / lua-language-server annotation stubs for the ChimeraTK ApplicationCore Lua bindings.
+-- These stubs enable code completion, hover documentation and type checking in LuaLS-aware editors.
+
+-- ============================================================
+--  DataType
+-- ============================================================
+
+---@class DataType
+---@field int8    DataType
+---@field uint8   DataType
+---@field int16   DataType
+---@field uint16  DataType
+---@field int32   DataType
+---@field uint32  DataType
+---@field int64   DataType
+---@field uint64  DataType
+---@field float32 DataType
+---@field float64 DataType
+---@field string  DataType
+---@field Boolean DataType
+---@field Void    DataType
+DataType = {}
+
+-- ============================================================
+--  DataValidity
+-- ============================================================
+
+---@class DataValidity
+---@field ok     DataValidity
+---@field faulty DataValidity
+DataValidity = {}
+
+-- ============================================================
+--  VersionNumber
+-- ============================================================
+
+---@class VersionNumber
+---@return VersionNumber
+local VersionNumber = {}
+
+---Returns true if this is the null (uninitialised) version number.
+---@return boolean
+function VersionNumber:isNullVersion() end
+
+-- ============================================================
+--  TransferElementID
+-- ============================================================
+
+---@class TransferElementID
+local TransferElementID = {}
+
+---Returns true when the ID refers to a valid transfer element.
+---@return boolean
+function TransferElementID:isValid() end
+
+-- ============================================================
+--  TransferElementBase  (base for all accessors)
+-- ============================================================
+
+---@class TransferElementBase
+local TransferElementBase = {}
+
+---Blocking read: waits until new data arrive.
+function TransferElementBase:read() end
+
+---Non-blocking read attempt. Returns true if new data were received.
+---@return boolean
+function TransferElementBase:readNonBlocking() end
+
+---Read latest value, discarding stale data. Returns true if new data arrived.
+---@return boolean
+function TransferElementBase:readLatest() end
+
+---Write the current value to the network.
+function TransferElementBase:write() end
+
+---Write, allowing the data to be lost if unread.
+function TransferElementBase:writeDestructively() end
+
+---@return string
+function TransferElementBase:getName() end
+
+---@return string
+function TransferElementBase:getUnit() end
+
+---@return string
+function TransferElementBase:getDescription() end
+
+---@return DataType
+function TransferElementBase:getValueType() end
+
+---@return VersionNumber
+function TransferElementBase:getVersionNumber() end
+
+---@return boolean
+function TransferElementBase:isReadOnly() end
+
+---@return boolean
+function TransferElementBase:isReadable() end
+
+---@return boolean
+function TransferElementBase:isWriteable() end
+
+---@return TransferElementID
+function TransferElementBase:getId() end
+
+---@return DataValidity
+function TransferElementBase:dataValidity() end
+
+-- ============================================================
+--  ScalarAccessor
+-- ============================================================
+
+---@class ScalarAccessor : TransferElementBase
+local ScalarAccessor = {}
+
+---Return the current scalar value as a Lua primitive (number / string / boolean).
+---@return any
+function ScalarAccessor:get() end
+
+---Blocking read, then return the new scalar value.
+---@return any
+function ScalarAccessor:readAndGet() end
+
+---Set the in-memory value (does NOT write to the network).
+---@param value any
+function ScalarAccessor:set(value) end
+
+---Set the value and immediately write to the network.
+---@param value any
+function ScalarAccessor:setAndWrite(value) end
+
+---Write to the network only if the new value differs from the current one.
+---@param value any
+function ScalarAccessor:writeIfDifferent(value) end
+
+-- ============================================================
+--  ArrayAccessor
+-- ============================================================
+
+---@class ArrayAccessor : TransferElementBase
+local ArrayAccessor = {}
+
+---Blocking read; returns self for chaining (`for i,v in pairs(arr:readAndGet())`).
+---@return ArrayAccessor
+function ArrayAccessor:readAndGet() end
+
+---Number of elements in the array.
+---@return integer
+function ArrayAccessor:getNElements() end
+
+-- Array element access via [] — uses __index / __newindex metamethods.
+-- Indices are 1-based (Lua convention).
+
+-- ============================================================
+--  VoidAccessor
+-- ============================================================
+
+---@class VoidAccessor : TransferElementBase
+local VoidAccessor = {}
+
+-- ============================================================
+--  ReadAnyGroup
+-- ============================================================
+
+---@class ReadAnyGroup
+local ReadAnyGroup = {}
+
+---@return ReadAnyGroup
+function ReadAnyGroup.new() end
+
+---Add an accessor to the group.
+---@param accessor TransferElementBase
+function ReadAnyGroup:add(accessor) end
+
+---Blocking read from any member. Returns the ID of the element that was read.
+---@return TransferElementID
+function ReadAnyGroup:readAny() end
+
+---Non-blocking poll. Returns the ID (or an invalid ID if nothing was ready).
+---@return TransferElementID
+function ReadAnyGroup:readAnyNonBlocking() end
+
+---Block until the given element has been updated.
+---@param id_or_accessor TransferElementID|TransferElementBase
+function ReadAnyGroup:readUntil(id_or_accessor) end
+
+---Finalise the group (no more add() after this).
+function ReadAnyGroup:finalise() end
+
+---Interrupt a blocked readAny().
+function ReadAnyGroup:interrupt() end
+
+-- ============================================================
+--  MatchingMode  (for DataConsistencyGroup)
+-- ============================================================
+
+---@class MatchingMode
+---@field none       MatchingMode
+---@field exact      MatchingMode
+---@field historized MatchingMode
+MatchingMode = {}
+
+-- ============================================================
+--  DataConsistencyGroup
+-- ============================================================
+
+---@class DataConsistencyGroup
+local DataConsistencyGroup = {}
+
+---@param mode MatchingMode
+---@return DataConsistencyGroup
+function DataConsistencyGroup.new(mode) end
+
+---Add an accessor to the consistency group.
+---@param accessor TransferElementBase
+---@param histLen? integer   history length (for historized mode)
+function DataConsistencyGroup:add(accessor, histLen) end
+
+---Check whether the given ID produced a consistent snapshot. Returns true if so.
+---@param id TransferElementID
+---@return boolean
+function DataConsistencyGroup:update(id) end
+
+---@return MatchingMode
+function DataConsistencyGroup:getMatchingMode() end
+
+-- ============================================================
+--  Severity  (for logger)
+-- ============================================================
+
+---@class Severity
+---@field trace   Severity
+---@field debug   Severity
+---@field info    Severity
+---@field warning Severity
+---@field error   Severity
+Severity = {}
+
+-- ============================================================
+--  LoggerStream
+-- ============================================================
+
+---@class LoggerStream
+local LoggerStream = {}
+
+---Emit a log line.
+---@param message string
+function LoggerStream:log(message) end
+
+-- ============================================================
+--  ConfigReader
+-- ============================================================
+
+---@class ConfigReader
+local ConfigReader = {}
+
+---Read a scalar value from the configuration.
+---@param type    DataType
+---@param path    string
+---@param default? any   optional default value
+---@return any
+function ConfigReader:get(type, path, default) end
+
+---Read an array of values from the configuration.
+---@param type    DataType
+---@param path    string
+---@param default? any[]  optional default array
+---@return any[]
+function ConfigReader:getArray(type, path, default) end
+
+---Return a list of sub-module names under the given path.
+---@param path string
+---@return string[]
+function ConfigReader:getModules(path) end
+
+-- ============================================================
+--  VariableGroup
+-- ============================================================
+
+---@class VariableGroup
+local VariableGroup = {}
+
+---@return string
+function VariableGroup:getName() end
+
+function VariableGroup:readAll() end
+function VariableGroup:readAllLatest() end
+function VariableGroup:readAllNonBlocking() end
+function VariableGroup:writeAll() end
+function VariableGroup:writeAllDestructively() end
+
+-- ============================================================
+--  ModuleGroup
+-- ============================================================
+
+---@class ModuleGroup
+local ModuleGroup = {}
+
+---@return string
+function ModuleGroup:getName() end
+
+-- ============================================================
+--  ApplicationModule
+-- ============================================================
+
+---@class ApplicationModule
+local ApplicationModule = {}
+
+---@return string
+function ApplicationModule:getName() end
+
+---@param includeReturnChannels? boolean
+function ApplicationModule:readAll(includeReturnChannels) end
+
+---@param includeReturnChannels? boolean
+function ApplicationModule:readAllLatest(includeReturnChannels) end
+
+---@param includeReturnChannels? boolean
+function ApplicationModule:readAllNonBlocking(includeReturnChannels) end
+
+---@param includeReturnChannels? boolean
+function ApplicationModule:writeAll(includeReturnChannels) end
+
+---@return VersionNumber
+function ApplicationModule:getCurrentVersionNumber() end
+
+---@param vn VersionNumber
+function ApplicationModule:setCurrentVersionNumber(vn) end
+
+---@return DataValidity
+function ApplicationModule:getDataValidity() end
+
+function ApplicationModule:incrementDataFaultCounter() end
+function ApplicationModule:decrementDataFaultCounter() end
+
+---@return integer
+function ApplicationModule:getDataFaultCounter() end
+
+function ApplicationModule:disable() end
+
+-- ============================================================
+--  Global factory functions
+-- ============================================================
+
+---Create a new unique VersionNumber. Pass nil to get the null version.
+---@param nil_arg? nil
+---@return VersionNumber
+function VersionNumber(nil_arg) end
+
+---Obtain the application ConfigReader.
+---@return ConfigReader
+function appConfig() end
+
+---Create a logger stream for the given severity and context.
+---@param severity Severity
+---@param context  string
+---@return LoggerStream
+function logger(severity, context) end
+
+---Create a ModuleGroup owned by a parent group.
+---@param owner      ModuleGroup
+---@param name        string
+---@param description string
+---@return ModuleGroup
+function ModuleGroup(owner, name, description) end
+
+---Create a VariableGroup owned by a parent module or group.
+---@param owner      ModuleGroup|ApplicationModule|VariableGroup
+---@param name        string
+---@param description string
+---@return VariableGroup
+function VariableGroup(owner, name, description) end
+
+---Create an ApplicationModule owned by a ModuleGroup.
+---@param owner       ModuleGroup
+---@param name         string
+---@param description  string
+---@param mainLoop     fun(self: ApplicationModule)  the module's main loop function
+---@return ApplicationModule
+function ApplicationModule(owner, name, description, mainLoop) end
+
+-- Scalar accessor factories
+---@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param description string  @return ScalarAccessor
+function ScalarPushInput(type, owner, name, unit, description) end
+---@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param description string  @return ScalarAccessor
+function ScalarPushInputWB(type, owner, name, unit, description) end
+---@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param description string  @return ScalarAccessor
+function ScalarPollInput(type, owner, name, unit, description) end
+---@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param description string  @return ScalarAccessor
+function ScalarOutput(type, owner, name, unit, description) end
+---@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param description string  @return ScalarAccessor
+function ScalarOutputPushRB(type, owner, name, unit, description) end
+---@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param description string  @return ScalarAccessor
+function ScalarOutputReverseRecovery(type, owner, name, unit, description) end
+
+-- Array accessor factories
+---@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param nElements integer  @param description string  @return ArrayAccessor
+function ArrayPushInput(type, owner, name, unit, nElements, description) end
+---@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param nElements integer  @param description string  @return ArrayAccessor
+function ArrayPushInputWB(type, owner, name, unit, nElements, description) end
+---@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param nElements integer  @param description string  @return ArrayAccessor
+function ArrayPollInput(type, owner, name, unit, nElements, description) end
+---@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param nElements integer  @param description string  @return ArrayAccessor
+function ArrayOutput(type, owner, name, unit, nElements, description) end
+---@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param nElements integer  @param description string  @return ArrayAccessor
+function ArrayOutputPushRB(type, owner, name, unit, nElements, description) end
+---@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param nElements integer  @param description string  @return ArrayAccessor
+function ArrayOutputReverseRecovery(type, owner, name, unit, nElements, description) end
+
+-- Void accessor factories
+---@param owner ApplicationModule  @param name string  @param description string  @return VoidAccessor
+function VoidInput(owner, name, description) end
+---@param owner ApplicationModule  @param name string  @param description string  @return VoidAccessor
+function VoidOutput(owner, name, description) end
+
+-- The root module group; set by LuaModuleManager before each script is executed.
+---@type ModuleGroup
+app = nil

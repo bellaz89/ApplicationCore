@@ -8,6 +8,10 @@ if(NOT ${pybind11_FOUND})
   list(REMOVE_ITEM testExecutables "${CMAKE_CURRENT_SOURCE_DIR}/executables_src/testPython.cc")
 endif()
 
+if(NOT ENABLE_LUA_BINDINGS OR NOT _lua_found)
+  list(REMOVE_ITEM testExecutables "${CMAKE_CURRENT_SOURCE_DIR}/executables_src/testLua.cc")
+endif()
+
 foreach(testExecutableSrcFile ${testExecutables})
   # NAME_WE means the base name without path and (longest) extension
   get_filename_component(executableName ${testExecutableSrcFile} NAME_WE)

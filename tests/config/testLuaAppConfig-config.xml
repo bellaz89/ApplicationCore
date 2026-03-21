@@ -1,0 +1,14 @@
+<configuration>
+    <module name="LuaModules">
+        <module name="AppModule">
+            <variable name="path" type="string" value="testLuaAppConfig.lua" />
+        </module>
+    </module>
+    <variable name="stringScalar" type="string" value="a string scalar" />
+    <variable name="floatScalar"  type="float"  value="815.4711" />
+    <variable name="floatArray"   type="float">
+        <value i="0" v="0.5" />
+        <value i="1" v="0.6" />
+        <value i="2" v="1.5" />
+    </variable>
+</configuration>

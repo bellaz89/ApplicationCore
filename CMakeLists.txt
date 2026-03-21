@@ -36,6 +36,54 @@ set(LIBXML++_VERSION "libxml++-2.6")
 PKG_CHECK_MODULES(LibXML++ REQUIRED IMPORTED_TARGET ${LIBXML++_VERSION})
 PKG_CHECK_MODULES(glib REQUIRED IMPORTED_TARGET glib-2.0)
 
+# Lua bindings via sol2
+option(ENABLE_LUA_BINDINGS "Enable Lua scripting bindings" ON)
+set(LUA_IMPL "AUTO" CACHE STRING "Lua implementation to use: AUTO searches LuaJIT first then Lua, LUAJIT forces LuaJIT, LUAC forces standard Lua")
+set_property(CACHE LUA_IMPL PROPERTY STRINGS AUTO LUAJIT LUAC)
+
+if(ENABLE_LUA_BINDINGS)
+  set(_lua_found FALSE)
+
+  if(LUA_IMPL STREQUAL "AUTO" OR LUA_IMPL STREQUAL "LUAJIT")
+    PKG_CHECK_MODULES(LuaJIT luajit)
+    if(LuaJIT_FOUND)
+      set(_lua_found TRUE)
+      set(_lua_link_target PkgConfig::LuaJIT)
+      message(STATUS "Lua bindings: using LuaJIT ${LuaJIT_VERSION}")
+    elseif(LUA_IMPL STREQUAL "LUAJIT")
+      message(FATAL_ERROR "LuaJIT was requested (LUA_IMPL=LUAJIT) but not found")
+    endif()
+  endif()
+
+  if(NOT _lua_found AND (LUA_IMPL STREQUAL "AUTO" OR LUA_IMPL STREQUAL "LUAC"))
+    find_package(Lua)
+    if(LUA_FOUND)
+      set(_lua_found TRUE)
+      add_library(_LuaImported UNKNOWN IMPORTED)
+      set_target_properties(_LuaImported PROPERTIES
+        IMPORTED_LOCATION "${LUA_LIBRARIES}"
+        INTERFACE_INCLUDE_DIRECTORIES "${LUA_INCLUDE_DIR}")
+      set(_lua_link_target _LuaImported)
+      message(STATUS "Lua bindings: using Lua ${LUA_VERSION_STRING}")
+    elseif(LUA_IMPL STREQUAL "LUAC")
+      message(FATAL_ERROR "Lua was requested (LUA_IMPL=LUAC) but not found")
+    else()
+      message(WARNING "Neither LuaJIT nor Lua was found, disabling Lua bindings")
+    endif()
+  endif()
+
+  if(_lua_found)
+    include(FetchContent)
+    FetchContent_Declare(sol2
+      GIT_REPOSITORY https://github.com/ThePhD/sol2.git
+      GIT_TAG v3.3.0
+      GIT_SHALLOW TRUE)
+    FetchContent_MakeAvailable(sol2)
+  else()
+    set(ENABLE_LUA_BINDINGS OFF CACHE BOOL "Enable Lua scripting bindings" FORCE)
+  endif()
+endif()
+
 # Find BOOST filesystem
 # Note: we need to search this before looking for the unit_test_framework, since we must not link against the
 # unit_test_framework library (use header-only)
@@ -73,6 +121,19 @@ if(${pybind11_FOUND})
   file(GLOB python_module_sources "${CMAKE_SOURCE_DIR}/Python/bindings/src/*.cc")
 endif()
 
+if(ENABLE_LUA_BINDINGS)
+  # Lua module manager sources and headers
+  include_directories(${CMAKE_SOURCE_DIR}/Lua/manager)
+  set(${PROJECT_NAME}_INCLUDE_DIRS ${${PROJECT_NAME}_INCLUDE_DIRS} ${CMAKE_SOURCE_DIR}/Lua/manager/)
+  file(GLOB lua_manager_headers "${CMAKE_SOURCE_DIR}/Lua/manager/*.h")
+  set(lua_manager_sources "${CMAKE_SOURCE_DIR}/Lua/manager/LuaModuleManager.cc")
+
+  # Lua binding sources and headers (sol2-based wrappers)
+  include_directories(${CMAKE_SOURCE_DIR}/Lua/bindings/include)
+  file(GLOB lua_bindings_headers "${CMAKE_SOURCE_DIR}/Lua/bindings/include/*.h")
+  file(GLOB lua_bindings_sources "${CMAKE_SOURCE_DIR}/Lua/bindings/src/*.cc")
+endif()
+
 # Create the executables for automated unit testing.
 if(BUILD_TESTS)
   enable_testing()
@@ -80,7 +141,7 @@ if(BUILD_TESTS)
 endif()
 
 # C++ library
-add_library(${PROJECT_NAME} SHARED ${library_sources} ${library_module_sources} ${python_manager_sources} ${headers} ${module_headers} ${python_module_headers} ${python_manager_sources})
+add_library(${PROJECT_NAME} SHARED ${library_sources} ${library_module_sources} ${python_manager_sources} ${lua_manager_sources} ${lua_bindings_sources} ${headers} ${module_headers} ${python_module_headers} ${python_manager_headers} ${lua_manager_headers} ${lua_bindings_headers})
 set_target_properties(${PROJECT_NAME} PROPERTIES VERSION ${${PROJECT_NAME}_FULL_LIBRARY_VERSION}
   SOVERSION ${${PROJECT_NAME}_SOVERSION})
 
@@ -93,6 +154,11 @@ target_link_libraries(${PROJECT_NAME}
 
 if(${pybind11_FOUND})
   target_link_libraries(${PROJECT_NAME} PRIVATE pybind11::embed)
+endif()
+
+if(ENABLE_LUA_BINDINGS)
+  target_link_libraries(${PROJECT_NAME} PRIVATE ${_lua_link_target} sol2)
+  target_compile_definitions(${PROJECT_NAME} PUBLIC CHIMERATK_APPLICATION_CORE_WITH_LUA)
 endif()
 
 target_compile_definitions(${PROJECT_NAME} PRIVATE CHIMERATK_INSIDE_APPLICATION_CORE)
@@ -155,6 +221,12 @@ if(${pybind11_FOUND})
   if((NOT ${CMAKE_BUILD_TYPE} STREQUAL "asan") AND(NOT ${CMAKE_BUILD_TYPE} STREQUAL "tsan"))
     install(FILES ${CMAKE_CURRENT_BINARY_DIR}/PyApplicationCore.pyi DESTINATION ${python_install_path})
   endif()
+endif()
+
+if(ENABLE_LUA_BINDINGS AND _lua_found)
+  install(DIRECTORY ${CMAKE_SOURCE_DIR}/Lua/stubs/
+    DESTINATION share/ChimeraTK/ApplicationCore/lua-stubs
+    FILES_MATCHING PATTERN "*.lua")
 endif()
 
 # we need the public dependencies so create_cmake_config_files can find them as implicit dependencies
