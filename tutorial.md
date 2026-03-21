@@ -15,7 +15,7 @@ This tutorial walks you through everything you need to build a real-time control
 7. [Connecting modules](#7-connecting-modules)
 8. [The application configuration file](#8-the-application-configuration-file)
 9. [Testing with TestFacility](#9-testing-with-testfacility)
-10. [Lua scripting modules](#10-lua-scripting-modules)
+10. [Scripting modules (Lua and Python)](#10-scripting-modules-lua-and-python)
 11. [Useful patterns and tips](#11-useful-patterns-and-tips)
 
 ---
@@ -608,13 +608,23 @@ add_test(NAME testMyModule COMMAND testMyModule)
 
 ---
 
-## 10. Lua scripting modules
+## 10. Scripting modules (Lua and Python)
 
-If ApplicationCore was built with Lua support (`ENABLE_LUA_BINDINGS=ON`), you can write modules in Lua and load them at runtime — no recompilation needed.
+ApplicationCore supports two scripting back-ends for writing modules without recompilation:
 
-### 10.1 Enabling Lua modules in the config XML
+| Feature | Lua | Python |
+|---------|-----|--------|
+| Build flag | `ENABLE_LUA_BINDINGS=ON` | `ENABLE_PYTHON_BINDINGS=ON` |
+| Config section | `<LuaModules>` | `<PythonModules>` |
+| Style | Functional (closure) | Class-based (subclass) |
+| Arrays | 1-based, plain tables | 0-based, numpy arrays |
+| Interrupts | String sentinel | `ThreadInterrupted` exception |
 
-Add a `<LuaModules>` section.  Each `<module>` child specifies one script:
+The sections below show both languages side by side.  The C++ API (§3–§5) is the authoritative reference for behaviour; the scripting bindings mirror it closely.
+
+### 10.1 Enabling scripting modules in the config XML
+
+**Lua** — add a `<LuaModules>` section.  Each `<module>` child specifies one script file:
 
 ```xml
 <configuration>
@@ -629,9 +639,27 @@ Add a `<LuaModules>` section.  Each `<module>` child specifies one script:
 </configuration>
 ```
 
-The `path` is resolved from the working directory.
+The `path` is a file path resolved from the working directory.
+
+**Python equivalent** — use `<PythonModules>` instead.  The `path` value is a **Python module name** (passed to `import`), not a file path:
+
+```xml
+<configuration>
+  <module name="PythonModules">
+    <module name="Controller">
+      <variable name="path" type="string" value="controller" />
+    </module>
+  </module>
+
+  <variable name="gain" type="float" value="2.5" />
+</configuration>
+```
+
+The module is imported from Python's `sys.path`, so `controller.py` must be importable from the working directory (or installed as a package).
 
 ### 10.2 Module structure
+
+**Lua** — a module is a closure passed to `ApplicationModule()`; accessors are declared afterwards at script level:
 
 ```lua
 -- controller.lua
@@ -661,7 +689,42 @@ mod.output   = ScalarOutput   (DataType.float32, mod, "output",   "mA",   "Heate
 mod.gain     = ScalarPollInput(DataType.float32, mod, "gain",     "",     "Control gain")
 ```
 
-### 10.3 Lua accessor types
+**Python equivalent** — subclass `ac.ApplicationModule` and override `mainLoop`.  Accessors are created in `__init__` and the instance is registered on `ac.app`:
+
+```python
+# controller.py
+import PyApplicationCore as ac
+
+class Controller(ac.ApplicationModule):
+
+    def __init__(self, owner, name, description):
+        super().__init__(owner, name, description)
+        # Declare accessors in __init__ — they must exist before threads start
+        self.setpoint = ac.ScalarPollInput(ac.DataType.float32, self, "setpoint", "degC", "Setpoint")
+        self.readback = ac.ScalarPushInput(ac.DataType.float32, self, "readback", "degC", "Actual temperature")
+        self.output   = ac.ScalarOutput   (ac.DataType.float32, self, "output",   "mA",   "Heater current")
+        self.gain     = ac.ScalarPollInput(ac.DataType.float32, self, "gain",     "",     "Control gain")
+
+    def mainLoop(self):
+        self.output.setAndWrite(0.0)   # publish initial value
+
+        while True:
+            sp = self.setpoint.readAndGet()
+            rb = self.readback.readAndGet()
+            self.output.setAndWrite(self.gain.get() * (sp - rb))
+
+# Register the module on the application object
+ac.app.controller = Controller(ac.app, "Controller", "Python PID controller")
+```
+
+Key differences from Lua:
+- Accessors go in `__init__`, not after the function.
+- `self.gain.get()` is needed because `ScalarPollInput` does not block; calling `readAndGet()` on a poll input would also work.
+- The module is instantiated and attached to `ac.app` at module-import time (equivalent to the Lua `ApplicationModule(app, …)` call).
+
+### 10.3 Accessor types in scripts
+
+**Lua:**
 
 ```lua
 -- Scalars
@@ -690,7 +753,40 @@ DataType.float32 DataType.float64
 DataType.string  DataType.Boolean  DataType.Void
 ```
 
-### 10.4 Array operations in Lua
+**Python equivalent** — identical constructor signatures; the only difference is the `ac.` prefix and `ac.DataType.*`:
+
+```python
+import PyApplicationCore as ac
+
+# Scalars
+ac.ScalarPushInput (ac.DataType.T, module, "name", "unit", "desc")
+ac.ScalarPollInput (ac.DataType.T, module, "name", "unit", "desc")
+ac.ScalarOutput    (ac.DataType.T, module, "name", "unit", "desc")
+
+# Arrays (add element count)
+ac.ArrayPushInput  (ac.DataType.T, module, "name", "unit", N, "desc")
+ac.ArrayPollInput  (ac.DataType.T, module, "name", "unit", N, "desc")
+ac.ArrayOutput     (ac.DataType.T, module, "name", "unit", N, "desc")
+
+# Triggers (no data)
+ac.VoidInput       (module, "name", "desc")
+ac.VoidOutput      (module, "name", "desc")
+```
+
+`DataType` constants (same names, `ac.DataType.` prefix):
+
+```python
+ac.DataType.int8    ac.DataType.uint8
+ac.DataType.int16   ac.DataType.uint16
+ac.DataType.int32   ac.DataType.uint32
+ac.DataType.int64   ac.DataType.uint64
+ac.DataType.float32 ac.DataType.float64
+ac.DataType.string  ac.DataType.Boolean  ac.DataType.Void
+```
+
+### 10.4 Array operations in scripts
+
+**Lua** — 1-based indexing, plain table iteration:
 
 ```lua
 -- Length and indexing (1-based)
@@ -712,7 +808,32 @@ end
 self.out:write()
 ```
 
-### 10.5 Reading config values from Lua
+**Python equivalent** — array accessors expose the **numpy buffer protocol**, so they behave like numpy arrays (0-based, vectorised operations, `shape`, etc.):
+
+```python
+# Length and indexing (0-based)
+n = len(self.array)            # number of elements
+v = self.array[0]              # read element 0
+self.array[1] = 42             # write element 1 (modifies local buffer)
+self.array.write()             # push buffer to subscribers
+
+# readAndGet() returns the array as a numpy view; iterate normally
+for val in self.array.readAndGet():
+    print(val)
+
+# vectorised operations (no explicit loop needed)
+self.array.read()
+self.out.set(self.array.get() * 2)   # element-wise multiply via numpy
+self.out.write()
+
+# or use numpy directly
+import numpy as np
+self.out.setAndWrite(np.array(self.array) * 2)
+```
+
+### 10.5 Reading config values from scripts
+
+**Lua:**
 
 ```lua
 local cfg = appConfig()
@@ -722,7 +843,24 @@ local table   = cfg:getArray(DataType.float64, "lookupTable")
 local modules = cfg:getModules("Sensors")
 ```
 
-### 10.6 Using VariableGroups and ModuleGroups from Lua
+**Python equivalent** — identical API; call `self.appConfig()` inside a module, or the global `ac.appConfig()` at script level:
+
+```python
+# inside mainLoop or __init__:
+cfg = self.appConfig()
+gain    = cfg.get(ac.DataType.float64, "gain")
+label   = cfg.get(ac.DataType.string,  "label", "default")   # third arg = default
+table   = cfg.getArray(ac.DataType.float64, "lookupTable")
+modules = cfg.getModules("Sensors")
+
+# at script (module-import) level:
+cfg = ac.appConfig()
+n_tickers = cfg.get(ac.DataType.uint32, "numberOfTickers", 0)
+```
+
+### 10.6 Using VariableGroups and ModuleGroups from scripts
+
+**Lua:**
 
 ```lua
 local group = ModuleGroup(app, "Sensors", "Sensor group")
@@ -736,13 +874,58 @@ mod.raw       = ScalarPushInput(DataType.float32, mod, "raw",       "V", "Raw si
 mod.processed = ScalarOutput   (DataType.float32, mod, "processed", "V", "Scaled signal")
 ```
 
-### 10.7 Interrupting a blocked read from Lua
+**Python equivalent** — `ModuleGroup` is used as an owner; `VariableGroup` can be subclassed or used with dynamic attribute assignment:
 
-`ReadAnyGroup` exposes an `interrupt()` method in Lua with the same semantics as the C++ version (see §4.7): it unblocks any thread waiting in `readAny()`.
+```python
+import PyApplicationCore as ac
 
-The framework calls `interrupt()` automatically when shutting down a Lua module, so you normally do not handle it.  When it fires, the blocking call throws a `boost::thread_interrupted` exception, which the Lua binding catches and re-raises as the string `"ChimeraTK::ThreadInterrupted"`.  The C++ wrapper in `LuaApplicationModule::mainLoop()` recognises this string and exits cleanly.
+# --- ModuleGroup ---
+sensors = ac.ModuleGroup(ac.app, "Sensors", "Sensor group")
 
-If you call `interrupt()` yourself (e.g. from a watchdog accessor callback) and want to distinguish an intentional interrupt from a real error, check for the sentinel string:
+class Processor(ac.ApplicationModule):
+    def __init__(self, owner, name, description):
+        super().__init__(owner, name, description)
+        self.raw       = ac.ScalarPushInput(ac.DataType.float32, self, "raw",       "V", "Raw signal")
+        self.processed = ac.ScalarOutput   (ac.DataType.float32, self, "processed", "V", "Scaled signal")
+
+    def mainLoop(self):
+        while True:
+            self.raw.read()
+            self.processed.setAndWrite(self.raw.get() * 2)
+
+ac.app.sensors.processor = Processor(sensors, "Processor", "Processes sensor data")
+
+# --- VariableGroup (dynamic attributes) ---
+class MyMod(ac.ApplicationModule):
+    def __init__(self, owner, name, description):
+        super().__init__(owner, name, description)
+        # inline VariableGroup using dynamic attribute assignment
+        self.gains = ac.VariableGroup(self, "Gains", "PID gains")
+        self.gains.kP = ac.ScalarPollInput(ac.DataType.float32, self.gains, "kP", "", "Proportional gain")
+        self.gains.kI = ac.ScalarPollInput(ac.DataType.float32, self.gains, "kI", "", "Integral gain")
+        self.output   = ac.ScalarOutput   (ac.DataType.float32, self, "output", "", "Control output")
+
+    def mainLoop(self):
+        while True:
+            self.output.setAndWrite(self.gains.kP.get())   # simplified
+
+# --- VariableGroup (subclassed) ---
+class MyMod2(ac.ApplicationModule):
+    class Gains(ac.VariableGroup):
+        def __init__(self, owner, name, description):
+            super().__init__(owner, name, description)
+            self.kP = ac.ScalarPollInput(ac.DataType.float32, self, "kP", "", "Proportional gain")
+
+    def __init__(self, owner, name, description):
+        super().__init__(owner, name, description)
+        self.gains = MyMod2.Gains(self, "Gains", "PID gains")
+```
+
+### 10.7 Interrupting a blocked read from scripts
+
+**Lua** — `ReadAnyGroup` exposes an `interrupt()` method with the same semantics as the C++ version (see §4.7).  When it fires, the Lua binding re-raises the interrupt as the string `"ChimeraTK::ThreadInterrupted"`.  The C++ wrapper recognises this and exits cleanly, so no extra code is needed in the normal case.
+
+If you call `interrupt()` yourself and need to distinguish it from a real error, use `pcall`:
 
 ```lua
 local group = ReadAnyGroup()
@@ -763,6 +946,29 @@ end
 ```
 
 If you do not use `pcall`, the exception propagates automatically and the module exits cleanly — no extra code needed.
+
+**Python equivalent** — the interrupt surfaces as a `ThreadInterrupted` exception (a real Python exception class, not a string).  The framework's `mainLoopWrapper` catches it automatically, so in the common case your `mainLoop` requires no special handling.
+
+If you call `interrupt()` yourself and need to handle it explicitly:
+
+```python
+import PyApplicationCore as ac
+
+def mainLoop(self):
+    group = ac.ReadAnyGroup()
+    group.add(self.input1)
+    group.add(self.input2)
+    group.finalise()
+
+    while True:
+        try:
+            id = group.readAny()
+        except ThreadInterrupted:
+            return   # clean shutdown; let the framework take over
+        # normal processing …
+```
+
+`ThreadInterrupted` is registered in the `__main__` namespace by the framework at startup, so it is always available without an import.
 
 ---
 
