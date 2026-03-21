@@ -290,6 +290,30 @@ void mainLoop() override {
 }
 ```
 
+### 4.7 Interrupting a blocked read
+
+`ReadAnyGroup::interrupt()` (and the same method on individual accessors) unblocks any thread currently waiting in `read()` or `readAny()` by injecting a `boost::thread_interrupted` exception into the transfer queue.
+
+The framework calls this automatically during shutdown — your `mainLoop()` does not need to handle it.  You only need `interrupt()` yourself in advanced patterns where one thread must forcibly wake another, for example a watchdog that aborts a stalled module:
+
+```cpp
+// From a watchdog thread or another module:
+group.interrupt();   // unblocks the thread blocked in group.readAny()
+```
+
+The interrupted thread receives `boost::thread_interrupted`.  If you let it propagate, ApplicationCore treats it as a clean shutdown signal.  If you catch it, always re-throw after any clean-up so the framework can still terminate the thread correctly:
+
+```cpp
+try {
+    auto id = group.readAny();
+    // normal processing …
+}
+catch(const boost::thread_interrupted&) {
+    // optional clean-up …
+    throw;   // always re-throw so the framework can shut down cleanly
+}
+```
+
 ---
 
 ## 5. Writing your first module
@@ -711,6 +735,34 @@ end)
 mod.raw       = ScalarPushInput(DataType.float32, mod, "raw",       "V", "Raw signal")
 mod.processed = ScalarOutput   (DataType.float32, mod, "processed", "V", "Scaled signal")
 ```
+
+### 10.7 Interrupting a blocked read from Lua
+
+`ReadAnyGroup` exposes an `interrupt()` method in Lua with the same semantics as the C++ version (see §4.7): it unblocks any thread waiting in `readAny()`.
+
+The framework calls `interrupt()` automatically when shutting down a Lua module, so you normally do not handle it.  When it fires, the blocking call throws a `boost::thread_interrupted` exception, which the Lua binding catches and re-raises as the string `"ChimeraTK::ThreadInterrupted"`.  The C++ wrapper in `LuaApplicationModule::mainLoop()` recognises this string and exits cleanly.
+
+If you call `interrupt()` yourself (e.g. from a watchdog accessor callback) and want to distinguish an intentional interrupt from a real error, check for the sentinel string:
+
+```lua
+local group = ReadAnyGroup()
+group:add(self.input1)
+group:add(self.input2)
+group:finalise()
+
+while true do
+    local ok, id = pcall(function() return group:readAny() end)
+    if not ok then
+        if type(id) == "string" and id:find("ChimeraTK::ThreadInterrupted") then
+            return   -- clean shutdown; let the framework take over
+        end
+        error(id)    -- unexpected error: propagate
+    end
+    -- normal processing …
+end
+```
+
+If you do not use `pcall`, the exception propagates automatically and the module exits cleanly — no extra code needed.
 
 ---
 
