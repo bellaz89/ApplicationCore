@@ -584,7 +584,7 @@ The `<LuaModules>` and `<PythonModules>` sections tell the framework which scrip
 ```xml
 <module name="LuaModules">
   <module name="Control">
-    <variable name="path" type="string" value="control.lua" />
+    <variable name="path" type="string" value="control" />
   </module>
 </module>
 ```
@@ -601,7 +601,7 @@ All variables declared in the config file are automatically published as process
   <!-- Scripted modules -->
   <module name="LuaModules">
     <module name="Control">
-      <variable name="path" type="string" value="control.lua" />
+      <variable name="path" type="string" value="control" />
     </module>
   </module>
 
@@ -757,13 +757,13 @@ The sections below show both languages side by side.  The C++ API (§3–§5) is
 
 ### 10.1 Enabling scripting modules in the config XML
 
-**Lua** — add a `<LuaModules>` section.  Each `<module>` child specifies one script file:
+**Lua** — add a `<LuaModules>` section.  Each `<module>` child specifies one Lua module name (passed to `require`, no `.lua` extension — identical convention to Python):
 
 ```xml
 <configuration>
   <module name="LuaModules">
     <module name="Controller">
-      <variable name="path" type="string" value="controller.lua" />
+      <variable name="path" type="string" value="controller" />
     </module>
   </module>
 
@@ -772,9 +772,9 @@ The sections below show both languages side by side.  The C++ API (§3–§5) is
 </configuration>
 ```
 
-The `path` is a file path resolved from the working directory.
+The `path` is a Lua module name resolved via `package.path` (the working directory is searched first).
 
-**Python equivalent** — use `<PythonModules>` instead.  The `path` value is a **Python module name** (passed to `import`), not a file path:
+**Python equivalent** — use `<PythonModules>` instead.  The `path` value is a Python module name (passed to `import`), following the same convention:
 
 ```xml
 <configuration>

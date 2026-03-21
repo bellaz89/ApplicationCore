@@ -52,6 +52,13 @@ namespace ChimeraTK {
     _impl->loadState = std::make_unique<sol::state>();
     registerLuaBindings(*_impl->loadState);
 
+    // Prepend the working directory to package.path so that require("mymodule")
+    // finds mymodule.lua in the current directory — identical to Python's sys.path behaviour.
+    std::string currentPath = (*_impl->loadState)["package"]["path"];
+    if(currentPath.find("./?.lua") == std::string::npos) {
+      (*_impl->loadState)["package"]["path"] = "./?.lua;" + currentPath;
+    }
+
     // Create the root module group that is exposed to Lua scripts as "app".
     _impl->mainGroup =
         std::make_unique<LuaModuleGroup>(&app, ".", "Root for Lua Modules");
@@ -67,18 +74,20 @@ namespace ChimeraTK {
     for(auto& module : config.getModules("LuaModules")) {
       init(app);
 
-      auto path = config.get<std::string>("LuaModules/" + module + "/path");
+      auto name = config.get<std::string>("LuaModules/" + module + "/path");
       std::lock_guard<std::mutex> lock(_impl->loadMutex);
 
-      std::cout << "LuaModuleManager: Loading script " << path << std::endl;
+      std::cout << "LuaModuleManager: Loading module " << name << std::endl;
 
-      auto result = _impl->loadState->script_file(path, [](lua_State* /*L*/, sol::protected_function_result pfr) {
-        return pfr;
-      });
+      // Use require() so the module name convention matches Python: no .lua extension,
+      // package.path is searched (set up in init()). require() also deduplicates —
+      // multiple config entries pointing at the same module name load it only once.
+      sol::protected_function require = (*_impl->loadState)["require"];
+      auto result = require(name);
 
       if(!result.valid()) {
         sol::error err = result;
-        throw ChimeraTK::logic_error(std::string("Error loading Lua script '") + path + "': " + err.what());
+        throw ChimeraTK::logic_error(std::string("Error loading Lua module '") + name + "': " + err.what());
       }
     }
 
