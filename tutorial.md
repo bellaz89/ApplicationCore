@@ -12,7 +12,7 @@ This tutorial walks you through everything you need to build a real-time control
 4. [Accessor types](#4-accessor-types)
 5. [Writing your first module](#5-writing-your-first-module)
 6. [Structuring larger applications](#6-structuring-larger-applications)
-7. [Connecting modules](#7-connecting-modules) — including hardware devices via DeviceModule
+7. [Connecting modules](#7-connecting-modules) — paths, fan-out, triggers, hardware devices
 8. [The application configuration file](#8-the-application-configuration-file) — XML format, C++ API, scripted modules
 9. [Testing with TestFacility](#9-testing-with-testfacility)
 10. [Scripting modules (Lua and Python)](#10-scripting-modules-lua-and-python)
@@ -446,9 +446,13 @@ ctk::ScalarPushInput<float> current{this, "../Controller/current", "mA", "desc"}
 
 No special code is needed.  If two modules both declare a `ScalarPushInput` at the same path, the framework creates an internal fan-out so both modules receive every update independently.
 
-### 7.4 PeriodicTrigger
+### 7.4 Triggers
 
-For modules that must run at a fixed rate rather than on data events:
+A **trigger** is any process variable that, when written, causes something to happen — either waking up a module or telling a `DeviceModule` to read its poll registers.  Triggers carry no data; they are purely an event signal.  The trigger path passed to `DeviceModule` (§7.5) can come from any of the four sources below.
+
+#### PeriodicTrigger — fixed-rate software timer
+
+For modules or devices that must run at a fixed rate:
 
 ```cpp
 #include <ChimeraTK/ApplicationCore/PeriodicTrigger.h>
@@ -458,16 +462,68 @@ struct MyApp : public ctk::Application {
     MyModule myModule{this, "MyModule", "desc"};
 };
 
-// In MyModule:
+// In MyModule — wakes every 100 ms:
 ctk::VoidInput tick{this, "/Timer/tick", "Periodic trigger"};
 
 void MyModule::mainLoop() {
     while (true) {
-        tick.read();   // wakes every 100 ms
+        tick.read();
         doWork();
     }
 }
 ```
+
+`PeriodicTrigger` publishes a `VoidOutput` at `/<name>/tick`.  The default period (if the fourth argument is omitted) is 1000 ms.
+
+#### ApplicationModule VoidOutput — software-generated trigger
+
+Any module can act as a trigger source by writing to a `VoidOutput`.  This is useful when the trigger rate is determined by application logic rather than a clock — for example, triggering a readout after a command is received:
+
+```cpp
+struct CommandModule : public ctk::ApplicationModule {
+    using ctk::ApplicationModule::ApplicationModule;
+
+    ctk::ScalarPushInput<int> command{this, "command", "", "Incoming command"};
+    ctk::VoidOutput           doReadout{this, "doReadout", "Trigger ADC readout"};
+
+    void mainLoop() override {
+        while (true) {
+            command.read();
+            if (command == 1) {
+                doReadout.write();   // wakes any module / DeviceModule listening on this path
+            }
+        }
+    }
+};
+
+// DeviceModule driven by the software trigger:
+ctk::DeviceModule adc{this, "MyADC", "/CommandModule/doReadout"};
+```
+
+#### Device interrupt register — hardware-generated trigger
+
+If a device has a register with push semantics (e.g. a hardware interrupt line), that register's path can trigger reads on a *different* device.  The framework reads the interrupt register as soon as the hardware fires it and then clocks the poll device:
+
+```cpp
+// Device A has a push register /TRIG/irq that fires on hardware interrupt.
+// Device B has only poll registers; use A's interrupt to clock B's reads.
+ctk::DeviceModule deviceA{this, "DeviceA"};                      // provides /TRIG/irq
+ctk::DeviceModule deviceB{this, "DeviceB", "/TRIG/irq"};         // polled on A's interrupt
+```
+
+This requires that the interrupt register appears as a `PUSH_OUT` (or equivalent interrupt-capable) entry in the device map file for DeviceA.
+
+#### Control-system variable — operator-triggered readout
+
+Any write arriving from the control system (EPICS, DOOCS, OPC-UA, …) to a given path counts as a trigger.  This allows an operator panel button to initiate a device readout on demand:
+
+```cpp
+// Operator writes 1 to /Commands/readNow from the control-system panel.
+// This path has no producer on the C++ side — the control system is the producer.
+ctk::DeviceModule adc{this, "MyADC", "/Commands/readNow"};
+```
+
+No `VoidOutput` or `PeriodicTrigger` needs to be declared; the framework accepts a trigger from any source that writes to the configured path.
 
 ### 7.5 Connecting to hardware devices (DeviceModule)
 
@@ -553,7 +609,7 @@ No `connectTo()`, no explicit fan-out code — the framework does it.
 
 #### Poll registers and triggers
 
-Some registers have no interrupt and must be read on a clock.  Pass the path of a trigger variable as the second argument to `DeviceModule`; this is typically the `tick` output of a `PeriodicTrigger`:
+Some registers have no interrupt and must be read on demand.  Pass the path of a trigger variable as the second argument to `DeviceModule`.  Any of the four trigger sources described in §7.4 can be used — the most common is a `PeriodicTrigger`:
 
 ```cpp
 struct MyApp : public ctk::Application {
