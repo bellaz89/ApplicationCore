@@ -657,14 +657,18 @@ struct MyApp : public ctk::Application {
     MyApp() : Application("MyApp") {}
     ~MyApp() override { shutdown(); }
 
-    ctk::SetDMapFilePath dmap{"myapp.dmap"};
+    ctk::SetDMapFilePath dmap{
+        getConfigReader().get<std::string>("dmapFile", "myapp.dmap")};
 
     ctk::PeriodicTrigger timer{this, "Timer", "10 Hz clock", 100};
 
     // Each DeviceModule is a separate, independently-managed device connection.
-    ctk::DeviceModule adc {this, "MyADC",  "/Timer/tick"};
-    ctk::DeviceModule dac {this, "MyDAC"};
-    ctk::DeviceModule fpga{this, "MyFPGA", "/Timer/tick",
+    ctk::DeviceModule adc {this,
+        getConfigReader().get<std::string>("adcDevice",  "MyADC"),  "/Timer/tick"};
+    ctk::DeviceModule dac {this,
+        getConfigReader().get<std::string>("dacDevice",  "MyDAC")};
+    ctk::DeviceModule fpga{this,
+        getConfigReader().get<std::string>("fpgaDevice", "MyFPGA"), "/Timer/tick",
         [](ChimeraTK::Device& dev) {
             dev.write<uint32_t>("/CTRL/enable", 1);
         }};
@@ -674,11 +678,36 @@ struct MyApp : public ctk::Application {
 };
 ```
 
+```xml
+<!-- MyApp-config.xml -->
+<configuration>
+  <variable name="dmapFile"    type="string" value="myapp.dmap" />
+  <variable name="adcDevice"   type="string" value="MyADC" />
+  <variable name="dacDevice"   type="string" value="MyDAC" />
+  <variable name="fpgaDevice"  type="string" value="MyFPGA" />
+</configuration>
+```
+
+```
+# myapp.dmap
+MyADC    (pcie?device=/dev/adc_0&map=adc.mmap)
+MyDAC    (pcie?device=/dev/dac_0&map=dac.mmap)
+MyFPGA   (pcie?device=/dev/fpga_0&map=fpga.mmap)
+```
+
 If the ADC faults, the DAC and FPGA keep running — fault isolation is per `DeviceModule`.
 
 #### Splitting one physical device into multiple DeviceModules
 
 Sometimes one physical device serves logically independent subsystems with different triggers or ownership.  Use `pathInDevice` to expose sub-trees, and pass the **same CDD string** (not different alias names) so the framework reuses a single backend connection:
+
+```xml
+<!-- MyApp-config.xml -->
+<configuration>
+  <variable name="dmapFile"   type="string" value="myapp.dmap" />
+  <variable name="fpgaCDD"    type="string" value="(pcie?device=/dev/amc_pcie_0&amp;map=fpga.mmap)" />
+</configuration>
+```
 
 ```
 # myapp.dmap
@@ -686,15 +715,25 @@ MyFPGA   (pcie?device=/dev/amc_pcie_0&map=fpga.mmap)
 ```
 
 ```cpp
-// Two DeviceModules, one backend — safe because CDD strings are identical.
-// Using the alias would create two backends (one per alias lookup).
-const std::string cdd = "(pcie?device=/dev/amc_pcie_0&map=fpga.mmap)";
+struct MyApp : public ctk::Application {
+    MyApp() : Application("MyApp") {}
+    ~MyApp() override { shutdown(); }
 
-ctk::DeviceModule fpgaDSP{this, cdd, "/Timer/tick", nullptr, "/DSP"};
-ctk::DeviceModule fpgaIO {this, cdd, "/Timer/tick", nullptr, "/IO"};
+    ctk::SetDMapFilePath dmap{
+        getConfigReader().get<std::string>("dmapFile", "myapp.dmap")};
+
+    ctk::PeriodicTrigger timer{this, "Timer", "10 Hz clock", 100};
+
+    // Use the CDD (not the alias) so the framework shares one backend instance.
+    // The CDD is read from XML so it can be changed without recompilation.
+    ctk::DeviceModule fpgaDSP{this,
+        getConfigReader().get<std::string>("fpgaCDD"), "/Timer/tick", nullptr, "/DSP"};
+    ctk::DeviceModule fpgaIO {this,
+        getConfigReader().get<std::string>("fpgaCDD"), "/Timer/tick", nullptr, "/IO"};
+};
 ```
 
-Registers under `/DSP/…` and `/IO/…` are published independently, but share one backend instance.  If you used two different alias names pointing to the same CDD the framework would still deduplicate the backend, but using the CDD directly makes the intent explicit.
+Registers under `/DSP/…` and `/IO/…` are published independently, but share one backend instance.  Note that `&` inside an XML attribute value must be written as `&amp;`.
 
 ---
 
