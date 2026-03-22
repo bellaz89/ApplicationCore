@@ -456,29 +456,29 @@ function log(severity, context, message) end
 function logger(severity, context) end
 
 -- ============================================================
---  config global table (new API)
+--  xmlConfig global table (new API)
 -- ============================================================
 
 ---@class _ConfigTable
 ---Read a scalar value, type inferred from default or explicit DataType.
 ---@overload fun(path: string, default: any): any
 ---@overload fun(type: DataType, path: string, default: any): any
-config = {}
+xmlConfig = {}
 
 ---@param path    string
 ---@param default any   (type inferred: number→float64, string→string, boolean→Boolean)
 ---@return any
-function config.get(path, default) end
+function xmlConfig.get(path, default) end
 
 ---@param path    string
 ---@param default any[]  (type inferred from first element)
 ---@return any[]
-function config.getArray(path, default) end
+function xmlConfig.getArray(path, default) end
 
 ---Return a list of sub-module names under the given path.
 ---@param path string
 ---@return string[]
-function config.getModules(path) end
+function xmlConfig.getModules(path) end
 
 ---Create a ModuleGroup owned by a parent group (or app root if no owner given).
 ---@overload fun(owner: ModuleGroup, name: string, description: string): ModuleGroup

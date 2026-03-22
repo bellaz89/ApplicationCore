@@ -56,7 +56,7 @@ local mod = ApplicationModule("Control", "A simple controller")
 -- Accessors and config values assigned as self properties at script level.
 mod.input  = mod:ScalarPushInput(DataType.float32, "input",  "V", "Raw measurement")
 mod.output = mod:ScalarOutput   (DataType.float32, "output", "V", "Computed setpoint")
-mod.scale  = config.get("Control/scale", 2.0)
+mod.scale  = xmlConfig.get("Control/scale", 2.0)
 
 function mod:mainLoop()
     self.output:setAndWrite(0.0)
@@ -242,14 +242,14 @@ Severity levels: `trace`, `debug`, `info`, `warning`, `error`.
 ### Application config
 
 ```lua
-local threshold = config.get     ("MyModule/threshold", 1.0)
-local coeffs    = config.getArray("MyModule/coefficients")
-local modules   = config.getModules("MyModule/channels")
+local threshold = xmlConfig.get     ("MyModule/threshold", 1.0)
+local coeffs    = xmlConfig.getArray("MyModule/coefficients")
+local modules   = xmlConfig.getModules("MyModule/channels")
 ```
 
 The type is read from the XML and converted automatically to the matching Lua type (number, string,
-or boolean). `config.get` and `config.getArray` accept an optional default as the second argument;
-omitting it throws if the path is missing. `config.getModules` returns a list of child module names
+or boolean). `xmlConfig.get` and `xmlConfig.getArray` accept an optional default as the second argument;
+omitting it throws if the path is missing. `xmlConfig.getModules` returns a list of child module names
 under the given path.
 
 ---
@@ -329,8 +329,8 @@ File-scope locals are automatically migrated into the per-module VM so they can 
 `mainLoop`. This includes plain values (numbers, strings, booleans) and accessor objects:
 
 ```lua
-local scale = config.get("MyModule/scale", 1.0)    -- number upvalue
-local label = config.get("MyModule/label", "v=")   -- string upvalue
+local scale = xmlConfig.get("MyModule/scale", 1.0)    -- number upvalue
+local label = xmlConfig.get("MyModule/label", "v=")   -- string upvalue
 
 local mod    = ApplicationModule(app, "MyModule", "Demo")
 local input  = mod:ScalarPushInput(DataType.float32, "input",  "V", "")

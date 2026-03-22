@@ -1,9 +1,9 @@
 -- testLuaNewAPI.lua
 -- Tests the new proposal API: method-call accessors, upvalue migration,
--- config.get(path, default), log(sev, ctx, msg)
+-- xmlConfig.get(path, default), log(sev, ctx, msg)
 
-local scale = config.get("NewAPI/scale", 2.0)
-local label = config.get("NewAPI/label", "newapi")
+local scale = xmlConfig.get("NewAPI/scale", 2.0)
+local label = xmlConfig.get("NewAPI/label", "newapi")
 
 local mod = ApplicationModule(app, "NewAPI", "New API test")
 

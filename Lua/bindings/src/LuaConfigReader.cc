@@ -68,11 +68,11 @@ namespace ChimeraTK {
     lua.set_function("appConfig",
         []() { return LuaConfigReader(ApplicationModule::appConfig()); });
 
-    // New API: config global table with auto-type inference
+    // New API: xmlConfig global table with auto-type inference
     auto configTable = lua.create_table();
 
-    // config.get(path, default) — type inferred from default value type
-    // config.get(DataType, path, default) — explicit type (delegates to LuaConfigReader)
+    // xmlConfig.get(path, default) — type inferred from default value type
+    // xmlConfig.get(DataType, path, default) — explicit type (delegates to LuaConfigReader)
     configTable.set_function("get",
         sol::overload(
             // explicit DataType form
@@ -102,8 +102,8 @@ namespace ChimeraTK {
               }
             }));
 
-    // config.getArray(path, default_table) — type inferred from first element
-    // config.getArray(DataType, path, default) — explicit type
+    // xmlConfig.getArray(path, default_table) — type inferred from first element
+    // xmlConfig.getArray(DataType, path, default) — explicit type
     configTable.set_function("getArray",
         sol::overload(
             // explicit DataType
@@ -147,7 +147,7 @@ namespace ChimeraTK {
       return ApplicationModule::appConfig().getModules(path);
     });
 
-    lua["config"] = configTable;
+    lua["xmlConfig"] = configTable;
   }
 
   /********************************************************************************************************************/
