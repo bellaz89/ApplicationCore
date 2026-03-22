@@ -93,6 +93,17 @@ namespace ChimeraTK {
   /********************************************************************************************************************/
 
   void LuaScalarAccessor::bind(sol::state& lua) {
+    // Helper lambda: get current value of an accessor as double
+    auto getDouble = [](const LuaScalarAccessor& a) -> double {
+      return std::visit(
+          [](auto& acc) {
+            using ACC = std::remove_reference_t<decltype(acc)>;
+            using T = typename ACC::value_type;
+            return static_cast<double>(static_cast<T>(acc));
+          },
+          a._accessor);
+    };
+
     lua.new_usertype<LuaScalarAccessor>("ScalarAccessor",
         sol::base_classes, sol::bases<LuaTransferElementBase>(),
         sol::no_constructor,
@@ -115,7 +126,73 @@ namespace ChimeraTK {
         "isReadable", &LuaScalarAccessor::isReadable,
         "isWriteable", &LuaScalarAccessor::isWriteable,
         "getId", &LuaScalarAccessor::getId,
-        "dataValidity", &LuaScalarAccessor::dataValidity);
+        "dataValidity", &LuaScalarAccessor::dataValidity,
+
+        // Arithmetic metamethods
+        sol::meta_function::addition,
+        [getDouble](const LuaScalarAccessor& a, sol::object b, sol::this_state s) -> sol::object {
+          sol::state_view sv(s);
+          double av = getDouble(a);
+          double bv = b.is<LuaScalarAccessor>() ? getDouble(b.as<const LuaScalarAccessor&>()) : b.as<double>();
+          return sol::make_object(sv, av + bv);
+        },
+        sol::meta_function::subtraction,
+        [getDouble](const LuaScalarAccessor& a, sol::object b, sol::this_state s) -> sol::object {
+          sol::state_view sv(s);
+          double av = getDouble(a);
+          double bv = b.is<LuaScalarAccessor>() ? getDouble(b.as<const LuaScalarAccessor&>()) : b.as<double>();
+          return sol::make_object(sv, av - bv);
+        },
+        sol::meta_function::multiplication,
+        [getDouble](const LuaScalarAccessor& a, sol::object b, sol::this_state s) -> sol::object {
+          sol::state_view sv(s);
+          double av = getDouble(a);
+          double bv = b.is<LuaScalarAccessor>() ? getDouble(b.as<const LuaScalarAccessor&>()) : b.as<double>();
+          return sol::make_object(sv, av * bv);
+        },
+        sol::meta_function::division,
+        [getDouble](const LuaScalarAccessor& a, sol::object b, sol::this_state s) -> sol::object {
+          sol::state_view sv(s);
+          double av = getDouble(a);
+          double bv = b.is<LuaScalarAccessor>() ? getDouble(b.as<const LuaScalarAccessor&>()) : b.as<double>();
+          return sol::make_object(sv, av / bv);
+        },
+        sol::meta_function::unary_minus,
+        [getDouble](const LuaScalarAccessor& a, sol::this_state s) -> sol::object {
+          sol::state_view sv(s);
+          return sol::make_object(sv, -getDouble(a));
+        },
+        sol::meta_function::less_than,
+        [getDouble](const LuaScalarAccessor& a, sol::object b) -> bool {
+          double av = getDouble(a);
+          double bv = b.is<LuaScalarAccessor>() ? getDouble(b.as<const LuaScalarAccessor&>()) : b.as<double>();
+          return av < bv;
+        },
+        sol::meta_function::less_than_or_equal_to,
+        [getDouble](const LuaScalarAccessor& a, sol::object b) -> bool {
+          double av = getDouble(a);
+          double bv = b.is<LuaScalarAccessor>() ? getDouble(b.as<const LuaScalarAccessor&>()) : b.as<double>();
+          return av <= bv;
+        },
+        sol::meta_function::to_string,
+        [getDouble](const LuaScalarAccessor& a) -> std::string {
+          std::string name = a.getName();
+          std::string validity = (a.dataValidity() == DataValidity::ok) ? "ok" : "faulty";
+          std::string valStr;
+          std::visit(
+              [&](auto& acc) {
+                using ACC = std::remove_reference_t<decltype(acc)>;
+                using T = typename ACC::value_type;
+                if constexpr(std::is_same_v<T, std::string>) {
+                  valStr = static_cast<T>(acc);
+                }
+                else {
+                  valStr = std::to_string(static_cast<T>(acc));
+                }
+              },
+              a._accessor);
+          return "<ScalarAccessor name=" + name + " value=" + valStr + " validity=" + validity + ">";
+        });
 
     // Scalar accessor factory functions — return reference; ownership is on the C++ side.
     lua.set_function("ScalarPushInput",

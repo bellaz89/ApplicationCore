@@ -20,6 +20,11 @@ namespace ChimeraTK {
 
   class LuaApplicationModule : public ApplicationModule, public LuaOwningObject {
    public:
+    /// New constructor — no mainLoop arg (new API; mainLoop assigned via mod.mainLoop = function...)
+    LuaApplicationModule(ModuleGroup* owner, const std::string& name, const std::string& description,
+        const std::unordered_set<std::string>& tags = {});
+
+    /// Old constructor — backward compat (mainLoop passed at construction time)
     LuaApplicationModule(ModuleGroup* owner, const std::string& name, const std::string& description,
         sol::protected_function mainLoopFn, const std::unordered_set<std::string>& tags = {});
 
@@ -31,9 +36,18 @@ namespace ChimeraTK {
 
     static void bind(sol::state& lua);
 
+    /// Build a factory for any migratable Lua value.
+    static std::function<sol::object(sol::state_view)> makeFactory(sol::object val);
+
    private:
+    /// Capture mainLoop bytecode + upvalues from a sol::protected_function.
+    void captureMainLoop(sol::protected_function& fn);
+
+    /// Extract all upvalues from the function at funcIdx on L's stack.
+    static std::vector<std::pair<std::string, std::function<sol::object(sol::state_view)>>> extractUpvalues(
+        lua_State* L, int funcIdx);
+
     /// Bytecode of the user-supplied mainLoop function, captured at construction from the loading state.
-    /// Loaded into the per-module sol::state when run() is called.
     std::vector<char> _mainLoopBytecode;
 
     /// Per-module Lua state created in run(). Only accessed from the module's own C++ thread.
@@ -42,13 +56,14 @@ namespace ChimeraTK {
     /// The mainLoop function, bound into _moduleState. Only valid after run() is called.
     sol::protected_function _mainLoopFn;
 
-    /// Named accessor/submodule storage. Maps property names to factory functions that produce Lua userdatas.
-    /// Populated via __newindex in the loading state; accessed via __index in the module VM.
-    /// Using C++ factories so the lookup works across VM boundaries.
-    std::unordered_map<std::string, std::function<sol::object(sol::state_view)>> _namedAccessors;
+    /// Storage for all module properties (accessors, scalars, strings, tables, functions).
+    /// Maps property names to factory functions that reconstruct the value in the target VM.
+    std::unordered_map<std::string, std::function<sol::object(sol::state_view)>> _properties;
+
+    /// Upvalue factories for mainLoop: (name, factory) pairs, in upvalue index order.
+    std::vector<std::pair<std::string, std::function<sol::object(sol::state_view)>>> _mainLoopUpvalues;
 
     /// Mutex protecting _moduleState from concurrent access (e.g. during terminate()).
-    /// Part of the mutex tree: LuaModuleManager (root) -> LuaApplicationModule (leaf).
     std::mutex _mutex;
   };
 

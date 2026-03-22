@@ -343,6 +343,93 @@ function ApplicationModule:getDataFaultCounter() end
 
 function ApplicationModule:disable() end
 
+-- New API: method-call accessor factories on ApplicationModule
+---@param type DataType  @param name string  @param unit string  @param description string  @return ScalarAccessor
+function ApplicationModule:ScalarPushInput(type, name, unit, description) end
+---@param type DataType  @param name string  @param unit string  @param description string  @return ScalarAccessor
+function ApplicationModule:ScalarPushInputWB(type, name, unit, description) end
+---@param type DataType  @param name string  @param unit string  @param description string  @return ScalarAccessor
+function ApplicationModule:ScalarPollInput(type, name, unit, description) end
+---@param type DataType  @param name string  @param unit string  @param description string  @return ScalarAccessor
+function ApplicationModule:ScalarOutput(type, name, unit, description) end
+---@param type DataType  @param name string  @param unit string  @param description string  @return ScalarAccessor
+function ApplicationModule:ScalarOutputPushRB(type, name, unit, description) end
+---@param type DataType  @param name string  @param unit string  @param description string  @return ScalarAccessor
+function ApplicationModule:ScalarOutputReverseRecovery(type, name, unit, description) end
+---@param type DataType  @param name string  @param unit string  @param nElements integer  @param description string  @return ArrayAccessor
+function ApplicationModule:ArrayPushInput(type, name, unit, nElements, description) end
+---@param type DataType  @param name string  @param unit string  @param nElements integer  @param description string  @return ArrayAccessor
+function ApplicationModule:ArrayPushInputWB(type, name, unit, nElements, description) end
+---@param type DataType  @param name string  @param unit string  @param nElements integer  @param description string  @return ArrayAccessor
+function ApplicationModule:ArrayPollInput(type, name, unit, nElements, description) end
+---@param type DataType  @param name string  @param unit string  @param nElements integer  @param description string  @return ArrayAccessor
+function ApplicationModule:ArrayOutput(type, name, unit, nElements, description) end
+---@param type DataType  @param name string  @param unit string  @param nElements integer  @param description string  @return ArrayAccessor
+function ApplicationModule:ArrayOutputPushRB(type, name, unit, nElements, description) end
+---@param type DataType  @param name string  @param unit string  @param nElements integer  @param description string  @return ArrayAccessor
+function ApplicationModule:ArrayOutputReverseRecovery(type, name, unit, nElements, description) end
+---@param name string  @param description string  @return VoidAccessor
+function ApplicationModule:VoidInput(name, description) end
+---@param name string  @param description string  @return VoidAccessor
+function ApplicationModule:VoidOutput(name, description) end
+---@param name string  @param description string  @return VariableGroup
+function ApplicationModule:VariableGroup(name, description) end
+---@param name string  @param description string  @return StatusAccessor
+function ApplicationModule:StatusOutput(name, description) end
+---@param name string  @param description string  @return StatusAccessor
+function ApplicationModule:StatusPushInput(name, description) end
+---@param name string  @param description string  @return StatusAccessor
+function ApplicationModule:StatusPollInput(name, description) end
+
+-- ============================================================
+--  StatusAccessor
+-- ============================================================
+
+---@class StatusAccessor : TransferElementBase
+local StatusAccessor = {}
+
+---Get current status as integer (use Status.OFF/OK/WARNING/FAULT constants).
+---@return integer
+function StatusAccessor:get() end
+
+---Blocking read, then return the status integer.
+---@return integer
+function StatusAccessor:readAndGet() end
+
+---Set the in-memory status value.
+---@param val integer
+function StatusAccessor:set(val) end
+
+---Set and immediately write the status value.
+---@param val integer
+function StatusAccessor:setAndWrite(val) end
+
+---Write only if the new value differs from the current one.
+---@param val integer
+function StatusAccessor:writeIfDifferent(val) end
+
+-- ============================================================
+--  Status enum (integer constants for StatusAccessor)
+-- ============================================================
+
+---@class Status
+---@field OFF     integer
+---@field OK      integer
+---@field WARNING integer
+---@field FAULT   integer
+Status = {}
+
+-- ============================================================
+--  PriorityMode  (for StatusAggregator)
+-- ============================================================
+
+---@class PriorityMode
+---@field fwok          PriorityMode
+---@field fwko          PriorityMode
+---@field fw_warn_mixed PriorityMode
+---@field ofwk          PriorityMode
+PriorityMode = {}
+
 -- ============================================================
 --  Global factory functions
 -- ============================================================
@@ -356,13 +443,46 @@ function VersionNumber(nil_arg) end
 ---@return ConfigReader
 function appConfig() end
 
----Create a logger stream for the given severity and context.
+---Emit a log line directly (new API).
+---@param severity Severity
+---@param context  string
+---@param message  string
+function log(severity, context, message) end
+
+---Create a logger stream for the given severity and context (old API).
 ---@param severity Severity
 ---@param context  string
 ---@return LoggerStream
 function logger(severity, context) end
 
----Create a ModuleGroup owned by a parent group.
+-- ============================================================
+--  config global table (new API)
+-- ============================================================
+
+---@class _ConfigTable
+---Read a scalar value, type inferred from default or explicit DataType.
+---@overload fun(path: string, default: any): any
+---@overload fun(type: DataType, path: string, default: any): any
+config = {}
+
+---@param path    string
+---@param default any   (type inferred: number→float64, string→string, boolean→Boolean)
+---@return any
+function config.get(path, default) end
+
+---@param path    string
+---@param default any[]  (type inferred from first element)
+---@return any[]
+function config.getArray(path, default) end
+
+---Return a list of sub-module names under the given path.
+---@param path string
+---@return string[]
+function config.getModules(path) end
+
+---Create a ModuleGroup owned by a parent group (or app root if no owner given).
+---@overload fun(owner: ModuleGroup, name: string, description: string): ModuleGroup
+---@overload fun(name: string, description: string): ModuleGroup
 ---@param owner      ModuleGroup
 ---@param name        string
 ---@param description string
@@ -376,15 +496,31 @@ function ModuleGroup(owner, name, description) end
 ---@return VariableGroup
 function VariableGroup(owner, name, description) end
 
+-- New API: method-call accessor factories on VariableGroup
+---@param type DataType  @param name string  @param unit string  @param description string  @return ScalarAccessor
+function VariableGroup:ScalarPushInput(type, name, unit, description) end
+---@param type DataType  @param name string  @param unit string  @param description string  @return ScalarAccessor
+function VariableGroup:ScalarOutput(type, name, unit, description) end
+---@param name string  @param description string  @return StatusAccessor
+function VariableGroup:StatusOutput(name, description) end
+---@param name string  @param description string  @return StatusAccessor
+function VariableGroup:StatusPushInput(name, description) end
+---@param name string  @param description string  @return StatusAccessor
+function VariableGroup:StatusPollInput(name, description) end
+---@param name string  @param description string  @return VariableGroup
+function VariableGroup:VariableGroup(name, description) end
+
 ---Create an ApplicationModule owned by a ModuleGroup.
+---@overload fun(owner: ModuleGroup, name: string, description: string, mainLoop: fun(self: ApplicationModule)): ApplicationModule
+---@overload fun(owner: ModuleGroup, name: string, description: string): ApplicationModule
 ---@param owner       ModuleGroup
 ---@param name         string
 ---@param description  string
----@param mainLoop     fun(self: ApplicationModule)  the module's main loop function
+---@param mainLoop?    fun(self: ApplicationModule)  the module's main loop function (old API)
 ---@return ApplicationModule
 function ApplicationModule(owner, name, description, mainLoop) end
 
--- Scalar accessor factories
+-- Scalar accessor factories (old API — global free functions)
 ---@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param description string  @return ScalarAccessor
 function ScalarPushInput(type, owner, name, unit, description) end
 ---@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param description string  @return ScalarAccessor
@@ -398,7 +534,7 @@ function ScalarOutputPushRB(type, owner, name, unit, description) end
 ---@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param description string  @return ScalarAccessor
 function ScalarOutputReverseRecovery(type, owner, name, unit, description) end
 
--- Array accessor factories
+-- Array accessor factories (old API — global free functions)
 ---@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param nElements integer  @param description string  @return ArrayAccessor
 function ArrayPushInput(type, owner, name, unit, nElements, description) end
 ---@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param nElements integer  @param description string  @return ArrayAccessor
@@ -412,11 +548,44 @@ function ArrayOutputPushRB(type, owner, name, unit, nElements, description) end
 ---@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param nElements integer  @param description string  @return ArrayAccessor
 function ArrayOutputReverseRecovery(type, owner, name, unit, nElements, description) end
 
--- Void accessor factories
+-- Void accessor factories (old API — global free functions)
 ---@param owner ApplicationModule  @param name string  @param description string  @return VoidAccessor
 function VoidInput(owner, name, description) end
 ---@param owner ApplicationModule  @param name string  @param description string  @return VoidAccessor
 function VoidOutput(owner, name, description) end
+
+-- Status accessor factories (global free functions)
+---@param owner ApplicationModule|VariableGroup  @param name string  @param description string  @return StatusAccessor
+function StatusOutput(owner, name, description) end
+---@param owner ApplicationModule|VariableGroup  @param name string  @param description string  @return StatusAccessor
+function StatusPushInput(owner, name, description) end
+---@param owner ApplicationModule|VariableGroup  @param name string  @param description string  @return StatusAccessor
+function StatusPollInput(owner, name, description) end
+
+-- Extra module constructors
+---Create a PeriodicTrigger module.
+---@param owner ModuleGroup  @param name string  @param description string  @param defaultPeriod? integer
+function PeriodicTrigger(owner, name, description, defaultPeriod) end
+
+---Create a StatusAggregator module.
+---@param owner ModuleGroup  @param outputName string  @param description string  @param mode? PriorityMode
+function StatusAggregator(owner, outputName, description, mode) end
+
+---Create a MaxMonitor module.
+---@param type DataType  @param owner ModuleGroup  @param inputPath string  @param outputPath string  @param parameterPath string  @param description string
+function MaxMonitor(type, owner, inputPath, outputPath, parameterPath, description) end
+
+---Create a MinMonitor module.
+---@param type DataType  @param owner ModuleGroup  @param inputPath string  @param outputPath string  @param parameterPath string  @param description string
+function MinMonitor(type, owner, inputPath, outputPath, parameterPath, description) end
+
+---Create a RangeMonitor module.
+---@param type DataType  @param owner ModuleGroup  @param inputPath string  @param outputPath string  @param parameterPath string  @param description string
+function RangeMonitor(type, owner, inputPath, outputPath, parameterPath, description) end
+
+---Create an ExactMonitor module.
+---@param type DataType  @param owner ModuleGroup  @param inputPath string  @param outputPath string  @param parameterPath string  @param description string
+function ExactMonitor(type, owner, inputPath, outputPath, parameterPath, description) end
 
 -- The root module group; set by LuaModuleManager before each script is executed.
 ---@type ModuleGroup

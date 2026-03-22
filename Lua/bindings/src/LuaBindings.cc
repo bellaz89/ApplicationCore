@@ -7,10 +7,12 @@
 #include "LuaArrayAccessor.h"
 #include "LuaConfigReader.h"
 #include "LuaDataConsistencyGroup.h"
+#include "LuaExtraModules.h"
 #include "LuaLogger.h"
 #include "LuaModuleGroup.h"
 #include "LuaReadAnyGroup.h"
 #include "LuaScalarAccessor.h"
+#include "LuaStatusAccessor.h"
 #include "LuaTransferElement.h"
 #include "LuaVariableGroup.h"
 #include "LuaVoidAccessor.h"
@@ -27,8 +29,8 @@ namespace ChimeraTK {
   /********************************************************************************************************************/
 
   void registerLuaBindings(sol::state& lua) {
-    lua.open_libraries(
-        sol::lib::base, sol::lib::string, sol::lib::table, sol::lib::math, sol::lib::io, sol::lib::os);
+    lua.open_libraries(sol::lib::base, sol::lib::string, sol::lib::table, sol::lib::math, sol::lib::io, sol::lib::os,
+        sol::lib::debug);
 
     // ---- DataType -------------------------------------------------------
     // Register the C++ type so sol2 knows its metatable (needed to pass DataType values to C++ factory functions).
@@ -107,6 +109,8 @@ namespace ChimeraTK {
     LuaDataConsistencyGroup::bind(lua);
     LuaLogger::bind(lua);
     LuaConfigReader::bind(lua);
+    LuaStatusAccessor::bind(lua);
+    LuaExtraModules::bind(lua);
   }
 
   /********************************************************************************************************************/

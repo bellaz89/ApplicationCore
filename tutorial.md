@@ -575,7 +575,7 @@ Path rules: separator is `/`; a leading `/` is stripped automatically so `"/foo"
 
 ### 8.3 Reading values from scripts
 
-See §10.5 for the Lua and Python config APIs (`cfg:get(DataType.T, "path")` / `cfg.get(DataType.T, "path")`).
+See §10.5 for the Lua and Python config APIs.  Lua scripts can use `config.get("path", default)` (type inferred from the default) or the legacy `cfg:get(DataType.T, "path")` form; Python uses `cfg.get(DataType.T, "path")`.
 
 ### 8.4 Declaring scripted modules
 
@@ -749,9 +749,10 @@ ApplicationCore supports two scripting back-ends for writing modules without rec
 |---------|-----|--------|
 | Build flag | `ENABLE_LUA_BINDINGS=ON` | `ENABLE_PYTHON_BINDINGS=ON` |
 | Config section | `<LuaModules>` | `<PythonModules>` |
-| Style | Functional (closure) | Class-based (subclass) |
+| Style | Functional (closure or method) | Class-based (subclass) |
 | Arrays | 1-based, plain tables | 0-based, numpy arrays |
 | Interrupts | String sentinel | `ThreadInterrupted` exception |
+| Config API | `config.get(path, default)` | `cfg.get(DataType.T, path)` |
 
 The sections below show both languages side by side.  The C++ API (§3–§5) is the authoritative reference for behaviour; the scripting bindings mirror it closely.
 
@@ -767,7 +768,7 @@ The sections below show both languages side by side.  The C++ API (§3–§5) is
     </module>
   </module>
 
-  <!-- any other config variables are accessible via appConfig() -->
+  <!-- any other config variables are accessible via config.get() or appConfig() -->
   <variable name="gain" type="float" value="2.5" />
 </configuration>
 ```
@@ -792,35 +793,35 @@ The module is imported from Python's `sys.path`, so `controller.py` must be impo
 
 ### 10.2 Module structure
 
-**Lua** — a module is a closure passed to `ApplicationModule()`; accessors are declared afterwards at script level:
+**Lua** — there are two equivalent styles.  The preferred *method-call* style assigns `mainLoop` as a function and uses method syntax for accessor factories:
 
 ```lua
--- controller.lua
+-- controller.lua  (preferred style)
 
--- 1. Create the module and provide the mainLoop as a closure.
---    IMPORTANT: the closure receives 'self' as its only argument.
---    Do NOT capture Lua variables from outside the function as upvalues —
---    they will be nil when the script runs in the module's own Lua VM.
-local mod = ApplicationModule(app, "Controller", "Lua PID controller", function(self)
+local mod = ApplicationModule(app, "Controller", "Lua PID controller")
 
-    -- Write initial output before entering the loop
+-- Declare accessors using method syntax on the module object.
+mod.setpoint = mod:ScalarPollInput(DataType.float32, "setpoint", "degC", "Setpoint")
+mod.readback = mod:ScalarPushInput(DataType.float32, "readback", "degC", "Actual temperature")
+mod.output   = mod:ScalarOutput   (DataType.float32, "output",   "mA",   "Heater current")
+mod.gain     = mod:ScalarPollInput(DataType.float32, "gain",     "",     "Control gain")
+
+-- Read a config value — type is inferred from the Lua default.
+local scale = config.get("Controller/scale", 1.0)    -- number → float64
+
+function mod:mainLoop()
+    -- File-scope locals (scale) and accessors are available as upvalues.
     self.output:setAndWrite(0.0)
 
     while true do
-        -- Blocking read: suspends this thread until new data arrives
         local sp = self.setpoint:readAndGet()
         local rb = self.readback:readAndGet()
-        self.output:setAndWrite(self.gain * (sp - rb))
+        self.output:setAndWrite(scale * self.gain * (sp - rb))
     end
-end)
-
--- 2. Declare accessors AFTER the function (but still at script level).
---    These run in the loading VM before any module thread starts.
-mod.setpoint = ScalarPollInput(DataType.float32, mod, "setpoint", "degC", "Setpoint")
-mod.readback = ScalarPushInput(DataType.float32, mod, "readback", "degC", "Actual temperature")
-mod.output   = ScalarOutput   (DataType.float32, mod, "output",   "mA",   "Heater current")
-mod.gain     = ScalarPollInput(DataType.float32, mod, "gain",     "",     "Control gain")
+end
 ```
+
+The *closure* style (passing `mainLoop` as the third argument to `ApplicationModule`) is also supported for backward compatibility.  File-scope locals — including accessor objects — are migrated into each module's own Lua VM as upvalues automatically, so they are always available inside `mainLoop` regardless of which style you use.
 
 **Python equivalent** — subclass `ac.ApplicationModule` and override `mainLoop`.  Accessors are created in `__init__` and the instance is registered on `ac.app`:
 
@@ -857,23 +858,30 @@ Key differences from Lua:
 
 ### 10.3 Accessor types in scripts
 
-**Lua:**
+**Lua** — preferred method-call style (module/group as `self`):
 
 ```lua
 -- Scalars
-ScalarPushInput (DataType.T, module, "name", "unit", "desc")
-ScalarPollInput (DataType.T, module, "name", "unit", "desc")
-ScalarOutput    (DataType.T, module, "name", "unit", "desc")
+mod:ScalarPushInput (DataType.T, "name", "unit", "desc")
+mod:ScalarPollInput (DataType.T, "name", "unit", "desc")
+mod:ScalarOutput    (DataType.T, "name", "unit", "desc")
 
 -- Arrays (add element count)
-ArrayPushInput  (DataType.T, module, "name", "unit", N, "desc")
-ArrayPollInput  (DataType.T, module, "name", "unit", N, "desc")
-ArrayOutput     (DataType.T, module, "name", "unit", N, "desc")
+mod:ArrayPushInput  (DataType.T, "name", "unit", N, "desc")
+mod:ArrayPollInput  (DataType.T, "name", "unit", N, "desc")
+mod:ArrayOutput     (DataType.T, "name", "unit", N, "desc")
 
 -- Triggers (no data)
-VoidInput       (module, "name", "desc")
-VoidOutput      (module, "name", "desc")
+mod:VoidInput       ("name", "desc")
+mod:VoidOutput      ("name", "desc")
+
+-- Status (integer with OK/WARNING/FAULT/OFF semantics)
+mod:StatusOutput    ("name", "desc")
+mod:StatusPushInput ("name", "desc")
+mod:StatusPollInput ("name", "desc")
 ```
+
+The same methods are available on `VariableGroup` objects.  The legacy free-function form (e.g., `ScalarPushInput(DataType.T, mod, "name", "unit", "desc")`) is still accepted.
 
 `DataType` constants:
 
@@ -884,6 +892,20 @@ DataType.int32   DataType.uint32
 DataType.int64   DataType.uint64
 DataType.float32 DataType.float64
 DataType.string  DataType.Boolean  DataType.Void
+```
+
+`Status` constants (for status accessors):
+
+```lua
+Status.OK   Status.WARNING   Status.FAULT   Status.OFF
+```
+
+Scalar accessors also support arithmetic operators directly, so you can write expressions without calling `:get()`:
+
+```lua
+self.sum:setAndWrite(self.a + self.b)          -- addition
+self.out:setAndWrite(self.input * 2.5)         -- mixed accessor/number
+local clamped = self.value < self.limit        -- comparison (returns boolean)
 ```
 
 **Python equivalent** — identical constructor signatures; the only difference is the `ac.` prefix and `ac.DataType.*`:
@@ -966,7 +988,26 @@ self.out.setAndWrite(np.array(self.array) * 2)
 
 ### 10.5 Reading config values from scripts
 
-**Lua:**
+**Lua** — the preferred API uses the global `config` table; the type is inferred from the Lua default value:
+
+```lua
+-- Type inferred from default: number → float64, string → string, boolean → Boolean
+local gain    = config.get("gain", 1.0)             -- float64
+local label   = config.get("label", "default")      -- string
+local enabled = config.get("enabled", true)         -- Boolean
+
+-- Array: type inferred from first element of the default table
+local lut     = config.getArray("lookupTable")      -- table of numbers (no default)
+local flags   = config.getArray("flags", {false})   -- table of booleans
+
+-- Sub-module names (for dynamic channel creation)
+local modules = config.getModules("Sensors")
+
+-- Paths are relative to the config root (same as appConfig)
+local freq = config.get("Controller/sampleFreq", 100.0)
+```
+
+The legacy `appConfig()` form is still available for scripts that need to pass an explicit `DataType`:
 
 ```lua
 local cfg = appConfig()
@@ -996,15 +1037,24 @@ n_tickers = cfg.get(ac.DataType.uint32, "numberOfTickers", 0)
 **Lua:**
 
 ```lua
-local group = ModuleGroup(app, "Sensors", "Sensor group")
-local mod   = ApplicationModule(group, "Processor", "Processes sensor data", function(self)
+-- ModuleGroup can be created without an explicit owner (attaches to app root)
+local group = ModuleGroup("Sensors", "Sensor group")
+local mod   = ApplicationModule(group, "Processor", "Processes sensor data")
+
+-- VariableGroup for hierarchical variable naming
+local vg = VariableGroup(mod, "Gains", "PID gain inputs")
+mod.kP = vg:ScalarPollInput(DataType.float32, "kP", "", "Proportional gain")
+mod.kI = vg:ScalarPollInput(DataType.float32, "kI", "", "Integral gain")
+
+mod.raw       = mod:ScalarPushInput(DataType.float32, "raw",       "V", "Raw signal")
+mod.processed = mod:ScalarOutput   (DataType.float32, "processed", "V", "Scaled signal")
+
+function mod:mainLoop()
     while true do
         self.raw:read()
-        self.processed:setAndWrite(self.raw:get() * 2)
+        self.processed:setAndWrite(self.raw + 0.0)
     end
-end)
-mod.raw       = ScalarPushInput(DataType.float32, mod, "raw",       "V", "Raw signal")
-mod.processed = ScalarOutput   (DataType.float32, mod, "processed", "V", "Scaled signal")
+end
 ```
 
 **Python equivalent** — `ModuleGroup` is used as an owner; `VariableGroup` can be subclassed or used with dynamic attribute assignment:
@@ -1102,6 +1152,52 @@ def mainLoop(self):
 ```
 
 `ThreadInterrupted` is registered in the `__main__` namespace by the framework at startup, so it is always available without an import.
+
+### 10.8 Status accessors, aggregation, and monitors (Lua)
+
+Status accessors carry a four-level severity (`OFF`, `OK`, `WARNING`, `FAULT`) and integrate with ApplicationCore's status-propagation infrastructure.
+
+```lua
+local mod = ApplicationModule(app, "Controller", "PID controller")
+
+-- Output publishes the module's health
+mod.status = mod:StatusOutput("status", "Controller health")
+
+function mod:mainLoop()
+    self.status:setAndWrite(Status.OK)
+    while true do
+        -- … normal processing …
+        if someError then
+            self.status:setAndWrite(Status.FAULT)
+        end
+    end
+end
+```
+
+**StatusAggregator** rolls up all `StatusOutput` variables under a `ModuleGroup` into a single output:
+
+```lua
+-- Aggregate every StatusOutput under 'app' into /status
+StatusAggregator(app, "/status", "Overall system status", PriorityMode.fwok)
+```
+
+Priority modes: `PriorityMode.fwok`, `fwko`, `fw_warn_mixed`, `ofwk`.
+
+**PeriodicTrigger** creates a regular time base (period in milliseconds):
+
+```lua
+PeriodicTrigger(app, "Ticker", "500 ms heartbeat", 500)
+```
+
+**Monitor utilities** watch a scalar variable and publish a status based on threshold checks:
+
+```lua
+-- Fault if value exceeds a threshold
+MaxMonitor  (DataType.float32, app, "/Sensors/temperature", "/status", "/params/tempMax",   "Temperature monitor")
+MinMonitor  (DataType.float32, app, "/Sensors/flow",        "/status", "/params/flowMin",    "Flow monitor")
+RangeMonitor(DataType.float32, app, "/Sensors/pressure",    "/status", "/params/pressure",   "Pressure monitor")
+ExactMonitor(DataType.int32,   app, "/Control/mode",        "/status", "/params/targetMode",  "Mode monitor")
+```
 
 ---
 

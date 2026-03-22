@@ -129,5 +129,105 @@ namespace Tests::testLua {
   }
 
   /********************************************************************************************************************/
+  /* Test new API: method-call accessor factories, upvalue migration, config.get, log() */
+
+  BOOST_AUTO_TEST_CASE(testNewAPI) {
+    std::cout << "***************************************************************************************" << std::endl;
+    std::cout << "==> testNewAPI" << std::endl;
+
+    TestApp app("testLuaNewAPI");
+    ctk::TestFacility tf(app);
+
+    auto input  = tf.getScalar<float>("/NewAPI/input");
+    auto output = tf.getScalar<float>("/NewAPI/output");
+    auto status = tf.getScalar<std::string>("/NewAPI/status");
+
+    tf.runApplication();
+
+    // Check initial writes (before any input read)
+    BOOST_TEST(output.readNonBlocking());
+    BOOST_TEST(float(output) == 0.0f, boost::test_tools::tolerance(0.001f));
+    BOOST_TEST(status.readNonBlocking());
+    BOOST_TEST(std::string(status) == "ready");
+
+    // Write input, step — verify output = input * scale (scale=2.0)
+    input.setAndWrite(3.0f);
+    tf.stepApplication();
+    BOOST_TEST(output.readNonBlocking());
+    BOOST_TEST(float(output) == 6.0f, boost::test_tools::tolerance(0.001f));
+    BOOST_TEST(status.readNonBlocking());
+    BOOST_TEST(std::string(status) == "ok");
+  }
+
+  /********************************************************************************************************************/
+  /* Test upvalue migration: file-scope locals available in mainLoop */
+
+  BOOST_AUTO_TEST_CASE(testUpvalueMigration) {
+    std::cout << "***************************************************************************************" << std::endl;
+    std::cout << "==> testUpvalueMigration" << std::endl;
+
+    TestApp app("testLuaUpvalue");
+    ctk::TestFacility tf(app);
+
+    auto input  = tf.getScalar<float>("/Upvalue/input");
+    auto output = tf.getScalar<float>("/Upvalue/output");
+    auto label  = tf.getScalar<std::string>("/Upvalue/label");
+
+    tf.runApplication();
+
+    // Check initial writes
+    BOOST_TEST(output.readNonBlocking());
+    BOOST_TEST(float(output) == 0.0f, boost::test_tools::tolerance(0.001f));
+    BOOST_TEST(label.readNonBlocking());
+    BOOST_TEST(std::string(label) == "v=init");
+
+    // Write input = 5.0, step — verify output = 5.0 + 10.0 = 15.0, label = "v=15"
+    input.setAndWrite(5.0f);
+    tf.stepApplication();
+    BOOST_TEST(output.readNonBlocking());
+    BOOST_TEST(float(output) == 15.0f, boost::test_tools::tolerance(0.001f));
+    BOOST_TEST(label.readNonBlocking());
+    BOOST_TEST(std::string(label) == "v=15.0");
+  }
+
+  /********************************************************************************************************************/
+  /* Test arithmetic metamethods on scalar accessors */
+
+  BOOST_AUTO_TEST_CASE(testArithmeticMetamethods) {
+    std::cout << "***************************************************************************************" << std::endl;
+    std::cout << "==> testArithmeticMetamethods" << std::endl;
+
+    TestApp app("testLuaArithmetic");
+    ctk::TestFacility tf(app);
+
+    auto a    = tf.getScalar<float>("/Arith/a");
+    auto b    = tf.getScalar<float>("/Arith/b");
+    auto sum  = tf.getScalar<float>("/Arith/sum");
+    auto diff = tf.getScalar<float>("/Arith/diff");
+    auto prod = tf.getScalar<float>("/Arith/prod");
+    auto quot = tf.getScalar<float>("/Arith/quot");
+    auto neg  = tf.getScalar<float>("/Arith/neg");
+    auto lt   = tf.getScalar<ChimeraTK::Boolean>("/Arith/lt");
+
+    tf.setScalarDefault<float>("/Arith/a", 3.0f);
+    tf.setScalarDefault<float>("/Arith/b", 4.0f);
+    tf.runApplication();
+
+    // Check initial computation
+    BOOST_TEST(sum.readNonBlocking());
+    BOOST_TEST(float(sum)  == 7.0f,  boost::test_tools::tolerance(0.001f));
+    BOOST_TEST(diff.readNonBlocking());
+    BOOST_TEST(float(diff) == -1.0f, boost::test_tools::tolerance(0.001f));
+    BOOST_TEST(prod.readNonBlocking());
+    BOOST_TEST(float(prod) == 12.0f, boost::test_tools::tolerance(0.001f));
+    BOOST_TEST(quot.readNonBlocking());
+    BOOST_TEST(float(quot) == 0.75f, boost::test_tools::tolerance(0.001f));
+    BOOST_TEST(neg.readNonBlocking());
+    BOOST_TEST(float(neg)  == -3.0f, boost::test_tools::tolerance(0.001f));
+    BOOST_TEST(lt.readNonBlocking());
+    BOOST_TEST(ChimeraTK::Boolean(lt) == true);
+  }
+
+  /********************************************************************************************************************/
 
 } // namespace Tests::testLua

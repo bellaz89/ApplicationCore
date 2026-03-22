@@ -51,25 +51,26 @@ and retrieves accessors via `self.myAccessor`.
 ```lua
 -- mymodule.lua
 
-local mod = ApplicationModule(app, "Control", "A simple controller",
-  function(self)
-    -- This is the mainLoop, running in a dedicated thread.
+local mod = ApplicationModule("Control", "A simple controller")
+
+-- Accessors and config values assigned as self properties at script level.
+mod.input  = mod:ScalarPushInput(DataType.float32, "input",  "V", "Raw measurement")
+mod.output = mod:ScalarOutput   (DataType.float32, "output", "V", "Computed setpoint")
+mod.scale  = config.get("Control/scale", 2.0)
+
+function mod:mainLoop()
     self.output:setAndWrite(0.0)
     while true do
-      local v = self.input:readAndGet()
-      self.output:setAndWrite(v * 2.0)
+        local v = self.input:readAndGet()
+        self.output:setAndWrite(v * self.scale)
     end
-  end)
-
--- Accessors must be created at script level (before initialise).
-mod.input  = ScalarPushInput(DataType.float32, mod, "/Measurement", "V",   "Raw measurement")
-mod.output = ScalarOutput   (DataType.float32, mod, "/Setpoint",    "V",   "Computed setpoint")
+end
 ```
 
-> **Important**: The `mainLoop` function must access process variables **only** through `self`.
-> It must not capture Lua variables from the outer script scope as upvalues, because the function
-> is migrated to a dedicated per-module Lua VM that does not share state with the loading VM.
-> Local variables defined *inside* the `mainLoop` function body are fine.
+> **Tip**: File-scope locals (including accessor objects) are automatically migrated into the
+> per-module VM as upvalues and are available directly inside `mainLoop`. You can also access
+> them via `self.xxx` if you stored them as module properties. Local variables defined *inside*
+> `mainLoop` are always fine.
 
 ---
 
@@ -118,8 +119,8 @@ Returned by `ReadAnyGroup:readAny()`. Compare with `==` or check with `isValid()
 | `ScalarOutputReverseRecovery` | special recovery   |
 
 ```lua
--- factory signature
-ScalarPushInput(DataType.int32, owner, "/Path/name", "unit", "description")
+-- factory signature (method on module or VariableGroup)
+mod:ScalarPushInput(DataType.int32, "name", "unit", "description")
 ```
 
 **Methods** (on any scalar accessor):
@@ -154,8 +155,8 @@ acc:dataValidity()
 | `ArrayOutputReverseRecovery` |                   |
 
 ```lua
-ArrayPushInput(DataType.int32, owner, "/Path/name", "unit", 10, "description")
---                                                           ^--- nElements
+mod:ArrayPushInput(DataType.int32, "name", "unit", 10, "description")
+--                                                  ^--- nElements
 ```
 
 **View semantics**: Array accessors are views into the C++ buffer — no data is copied. Index access
@@ -184,8 +185,8 @@ end
 ### Void accessors
 
 ```lua
-VoidInput (owner, "/Path/name", "description")
-VoidOutput(owner, "/Path/name", "description")
+mod:VoidInput ("name", "description")
+mod:VoidOutput("name", "description")
 ```
 
 ---
@@ -230,21 +231,49 @@ end
 ### Logging
 
 ```lua
-logger(Severity.info, "MyModule"):log("Startup complete")
-logger(Severity.warning, "MyModule"):log("Unexpected value: " .. tostring(v))
+log(Severity.info,    "MyModule", "Startup complete")
+log(Severity.warning, "MyModule", "Unexpected value: " .. tostring(v))
 ```
 
 Severity levels: `trace`, `debug`, `info`, `warning`, `error`.
 
 ---
 
-### Application config reader
+### Application config
 
 ```lua
-local cfg = appConfig()
-local threshold = cfg:get(DataType.float64, "MyModule/threshold", 1.0)
-local coeffs    = cfg:getArray(DataType.float64, "MyModule/coefficients")
+local threshold = config.get     ("MyModule/threshold", 1.0)
+local coeffs    = config.getArray("MyModule/coefficients")
+local modules   = config.getModules("MyModule/channels")
 ```
+
+The type is read from the XML and converted automatically to the matching Lua type (number, string,
+or boolean). `config.get` and `config.getArray` accept an optional default as the second argument;
+omitting it throws if the path is missing. `config.getModules` returns a list of child module names
+under the given path.
+
+---
+
+### StatusAccessor
+
+Use `StatusOutput`, `StatusPushInput`, or `StatusPollInput` to create status accessors. The status
+value is one of the integer constants in the `Status` table.
+
+```lua
+local s = mod:StatusOutput("status", "Aggregated status")
+
+-- In mainLoop:
+s:setAndWrite(Status.OK)
+s:setAndWrite(Status.WARNING)
+s:setAndWrite(Status.FAULT)
+s:setAndWrite(Status.OFF)
+
+local v = s:get()         -- returns an integer
+s:read()                   -- blocking read (for inputs)
+s:readAndGet()             -- read + return integer
+```
+
+Status constants: `Status.OFF`, `Status.OK`, `Status.WARNING`, `Status.FAULT`.
 
 ---
 
@@ -252,13 +281,92 @@ local coeffs    = cfg:getArray(DataType.float64, "MyModule/coefficients")
 
 ```lua
 -- VariableGroup inside a module
-local vg = VariableGroup(mod, "Sensors", "Sensor inputs")
-local temp = ScalarPushInput(DataType.float32, vg, "Temperature", "°C", "")
+local vg   = VariableGroup(mod, "Sensors", "Sensor inputs")
+local temp = vg:ScalarPushInput(DataType.float32, "Temperature", "°C", "")
+local st   = vg:StatusOutput("health", "Sensor health")
 
--- ModuleGroup for nesting
-local grp = ModuleGroup(app, "Controllers", "")
-local sub = ApplicationModule(grp, "PID", "PID controller", function(self) ... end)
+-- ModuleGroup for nesting (app root is implicit)
+local grp = ModuleGroup("Controllers", "")
+local sub = ApplicationModule(grp, "PID", "PID controller")
 ```
+
+---
+
+### PeriodicTrigger
+
+```lua
+PeriodicTrigger(app, "Ticker", "500 ms trigger", 500)
+-- defaultPeriod is in milliseconds; omit for 1000 ms default
+```
+
+---
+
+### StatusAggregator
+
+```lua
+-- Aggregate all StatusOutputs under the module group:
+StatusAggregator(app, "/status", "Overall system status", PriorityMode.fwok)
+```
+
+Priority modes: `PriorityMode.fwok`, `fwko`, `fw_warn_mixed`, `ofwk`.
+
+---
+
+### StatusMonitor variants
+
+```lua
+MaxMonitor  (DataType.float32, app, "/input", "/status", "/params", "Max monitor")
+MinMonitor  (DataType.float32, app, "/input", "/status", "/params", "Min monitor")
+RangeMonitor(DataType.float32, app, "/input", "/status", "/params", "Range monitor")
+ExactMonitor(DataType.int32,   app, "/input", "/status", "/params", "Exact monitor")
+```
+
+---
+
+### Upvalue migration
+
+File-scope locals are automatically migrated into the per-module VM so they can be used inside
+`mainLoop`. This includes plain values (numbers, strings, booleans) and accessor objects:
+
+```lua
+local scale = config.get("MyModule/scale", 1.0)    -- number upvalue
+local label = config.get("MyModule/label", "v=")   -- string upvalue
+
+local mod    = ApplicationModule(app, "MyModule", "Demo")
+local input  = mod:ScalarPushInput(DataType.float32, "input",  "V", "")
+local output = mod:ScalarOutput   (DataType.float32, "output", "V", "")
+
+function mod.mainLoop(self)
+    -- All of the above are available here as upvalues:
+    log(Severity.info, label, "starting (scale=" .. tostring(scale) .. ")")
+    output:setAndWrite(0.0)
+    while true do
+        local v = input:readAndGet()
+        output:setAndWrite(v * scale)
+    end
+end
+```
+
+> **Note**: Accessor objects captured as upvalues (`input`, `output`) are the same C++ objects —
+> their lifetimes are managed by the module group, not by the Lua VM.
+
+---
+
+### Scalar accessor arithmetic
+
+Scalar accessors support arithmetic operators directly, so you can write expressions without calling
+`:get()` explicitly:
+
+```lua
+self.sum:setAndWrite(self.a + self.b)    -- addition
+self.diff:setAndWrite(self.a - self.b)   -- subtraction
+self.prod:setAndWrite(self.a * self.b)   -- multiplication
+self.quot:setAndWrite(self.a / self.b)   -- division
+self.neg:setAndWrite(-self.a)            -- unary minus
+local less = self.a < self.b             -- comparison (returns boolean)
+```
+
+Mixed accessor–number expressions also work: `self.output:setAndWrite(self.input + 10.0)`.
 
 ---
 

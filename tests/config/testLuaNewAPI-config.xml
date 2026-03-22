@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <module name="LuaModules">
+    <module name="NewAPI">
+      <variable name="path" type="string" value="testLuaNewAPI.lua" />
+    </module>
+  </module>
+  <module name="NewAPI">
+    <variable name="scale" type="float" value="2.0" />
+    <variable name="label" type="string" value="newapi" />
+  </module>
+</configuration>

@@ -67,6 +67,87 @@ namespace ChimeraTK {
 
     lua.set_function("appConfig",
         []() { return LuaConfigReader(ApplicationModule::appConfig()); });
+
+    // New API: config global table with auto-type inference
+    auto configTable = lua.create_table();
+
+    // config.get(path, default) — type inferred from default value type
+    // config.get(DataType, path, default) — explicit type (delegates to LuaConfigReader)
+    configTable.set_function("get",
+        sol::overload(
+            // explicit DataType form
+            [](ChimeraTK::DataType dt, const std::string& path, sol::object defVal, sol::this_state s) -> sol::object {
+              LuaConfigReader cr(ApplicationModule::appConfig());
+              return cr.get(dt, path, defVal, s);
+            },
+            // auto-type from default value
+            [](const std::string& path, sol::object defVal, sol::this_state s) -> sol::object {
+              auto& reader = ApplicationModule::appConfig();
+              sol::state_view sv(s);
+              if(defVal.get_type() == sol::type::string) {
+                std::string def = defVal.as<std::string>();
+                return sol::make_object(sv, reader.get<std::string>(path, def));
+              }
+              else if(defVal.get_type() == sol::type::boolean) {
+                bool def = defVal.as<bool>();
+                return sol::make_object(sv, reader.get<ChimeraTK::Boolean>(path, def));
+              }
+              else {
+                // number or nil default → float64
+                if(defVal == sol::lua_nil) {
+                  return sol::make_object(sv, reader.get<double>(path));
+                }
+                double def = defVal.as<double>();
+                return sol::make_object(sv, reader.get<double>(path, def));
+              }
+            }));
+
+    // config.getArray(path, default_table) — type inferred from first element
+    // config.getArray(DataType, path, default) — explicit type
+    configTable.set_function("getArray",
+        sol::overload(
+            // explicit DataType
+            [](ChimeraTK::DataType dt, const std::string& path, sol::object defVal, sol::this_state s) -> sol::object {
+              LuaConfigReader cr(ApplicationModule::appConfig());
+              return cr.getArray(dt, path, defVal, s);
+            },
+            // auto-type: infer from first element of default table
+            [](const std::string& path, sol::object defVal, sol::this_state s) -> sol::object {
+              auto& reader = ApplicationModule::appConfig();
+              sol::state_view sv(s);
+              if(defVal.get_type() == sol::type::table) {
+                sol::table tbl = defVal.as<sol::table>();
+                sol::object first = tbl[1];
+                if(first.get_type() == sol::type::string) {
+                  std::vector<std::string> def;
+                  for(int i = 1; i <= static_cast<int>(tbl.size()); ++i) def.push_back(tbl.get<std::string>(i));
+                  auto vec = reader.get<std::vector<std::string>>(path, def);
+                  sol::table out = sv.create_table(static_cast<int>(vec.size()));
+                  for(size_t i = 0; i < vec.size(); ++i) out[i + 1] = vec[i];
+                  return out;
+                }
+                else {
+                  std::vector<double> def;
+                  for(int i = 1; i <= static_cast<int>(tbl.size()); ++i) def.push_back(tbl.get<double>(i));
+                  auto vec = reader.get<std::vector<double>>(path, def);
+                  sol::table out = sv.create_table(static_cast<int>(vec.size()));
+                  for(size_t i = 0; i < vec.size(); ++i) out[i + 1] = vec[i];
+                  return out;
+                }
+              }
+              else {
+                auto vec = reader.get<std::vector<double>>(path);
+                sol::table out = sv.create_table(static_cast<int>(vec.size()));
+                for(size_t i = 0; i < vec.size(); ++i) out[i + 1] = vec[i];
+                return out;
+              }
+            }));
+
+    configTable.set_function("getModules", [](const std::string& path) {
+      return ApplicationModule::appConfig().getModules(path);
+    });
+
+    lua["config"] = configTable;
   }
 
   /********************************************************************************************************************/

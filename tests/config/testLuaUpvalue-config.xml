@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <module name="LuaModules">
+    <module name="Upvalue">
+      <variable name="path" type="string" value="testLuaUpvalue.lua" />
+    </module>
+  </module>
+  <module name="Upvalue">
+    <variable name="addend"  type="float"   value="10.0" />
+    <variable name="prefix"  type="string"  value="v=" />
+    <variable name="enabled" type="boolean" value="true" />
+  </module>
+</configuration>

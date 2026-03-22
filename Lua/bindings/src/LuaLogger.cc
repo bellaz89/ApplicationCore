@@ -25,6 +25,12 @@ namespace ChimeraTK {
         [](Logger::Severity severity, const std::string& context) {
           return LuaLoggerStreamProxy(severity, context);
         });
+
+    // New API: log(severity, context, message) free function
+    lua.set_function("log",
+        [](Logger::Severity severity, const std::string& context, const std::string& message) {
+          ChimeraTK::logger(severity, context) << message;
+        });
   }
 
   /********************************************************************************************************************/

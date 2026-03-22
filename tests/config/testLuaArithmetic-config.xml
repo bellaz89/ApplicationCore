@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <module name="LuaModules">
+    <module name="Arithmetic">
+      <variable name="path" type="string" value="testLuaArithmetic.lua" />
+    </module>
+  </module>
+</configuration>
