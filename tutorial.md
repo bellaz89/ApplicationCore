@@ -12,7 +12,7 @@ This tutorial walks you through everything you need to build a real-time control
 4. [Accessor types](#4-accessor-types)
 5. [Writing your first module](#5-writing-your-first-module)
 6. [Structuring larger applications](#6-structuring-larger-applications)
-7. [Connecting modules](#7-connecting-modules)
+7. [Connecting modules](#7-connecting-modules) — including hardware devices via DeviceModule
 8. [The application configuration file](#8-the-application-configuration-file) — XML format, C++ API, scripted modules
 9. [Testing with TestFacility](#9-testing-with-testfacility)
 10. [Scripting modules (Lua and Python)](#10-scripting-modules-lua-and-python)
@@ -468,6 +468,154 @@ void MyModule::mainLoop() {
     }
 }
 ```
+
+### 7.5 Connecting to hardware devices (DeviceModule)
+
+ApplicationCore uses **ChimeraTK DeviceAccess** as its hardware abstraction layer.  You never call `device.open()` or `device.getRegisterAccessor()` inside a module.  Instead, `DeviceModule` publishes every register in a device's map file as a process variable at the corresponding path — and the normal path-matching mechanism wires them to your module's accessors automatically.
+
+#### Setting the DMAP file
+
+A DMAP file maps device aliases to backend CDDs (connection strings).  Set it once, before any `DeviceModule` is constructed.  The safest place is as the first data member of your `Application`:
+
+```cpp
+#include <ChimeraTK/ApplicationCore/DeviceModule.h>
+
+struct MyApp : public ctk::Application {
+    MyApp() : Application("MyApp") {}
+    ~MyApp() override { shutdown(); }
+
+    ctk::SetDMapFilePath dmap{"myapp.dmap"};   // must come before DeviceModules
+
+    // modules and devices declared below …
+};
+```
+
+`myapp.dmap` is a text file with one line per device:
+
+```
+# alias         CDD (backend descriptor)
+MyBoard         (pcie?device=/dev/amc_pcie_0&map=myboard.mmap)
+Dummy0          (dummy?map=test.map)
+```
+
+You can also skip the DMAP and pass a CDD directly as the alias string.
+
+#### Declaring a DeviceModule
+
+```cpp
+struct MyApp : public ctk::Application {
+    MyApp() : Application("MyApp") {}
+    ~MyApp() override { shutdown(); }
+
+    ctk::SetDMapFilePath dmap{"myapp.dmap"};
+
+    MyControlModule controller{this, "Controller", "PID loop"};
+
+    // Simplest form: expose all registers of "MyBoard" as process variables
+    ctk::DeviceModule board{this, "MyBoard"};
+};
+```
+
+The `DeviceModule` constructor signature is:
+
+```cpp
+DeviceModule(ModuleGroup* owner,
+             const std::string& deviceAliasOrCDD,
+             const std::string& triggerPath = {},          // optional
+             std::function<void(Device&)> initHandler = nullptr, // optional
+             const std::string& pathInDevice = "/");       // optional
+```
+
+#### Wiring: path matching
+
+A device register named `/Controller/setpoint` in the map file becomes a process variable at path `/Controller/setpoint`.  An accessor in `MyControlModule` declared at the relative path `setpoint` (which the framework resolves to `/Controller/setpoint`) is automatically connected to that hardware register:
+
+```cpp
+struct MyControlModule : public ctk::ApplicationModule {
+    using ctk::ApplicationModule::ApplicationModule;
+
+    // Written to device register /Controller/setpoint on every write()
+    ctk::ScalarOutput<float> setpoint{this, "setpoint", "V", "DAC output"};
+
+    // Fed from device register /Controller/readback on every new sample
+    ctk::ScalarPushInput<float> readback{this, "readback", "V", "ADC input"};
+
+    void mainLoop() override {
+        while (true) {
+            readback.read();
+            setpoint.setAndWrite(readback * 1.1f);
+        }
+    }
+};
+```
+
+No `connectTo()`, no explicit fan-out code — the framework does it.
+
+#### Poll registers and triggers
+
+Some registers have no interrupt and must be read on a clock.  Pass the path of a trigger variable as the second argument to `DeviceModule`; this is typically the `tick` output of a `PeriodicTrigger`:
+
+```cpp
+struct MyApp : public ctk::Application {
+    MyApp() : Application("MyApp") {}
+    ~MyApp() override { shutdown(); }
+
+    ctk::SetDMapFilePath    dmap{"myapp.dmap"};
+    ctk::PeriodicTrigger    timer{this, "Timer", "10 Hz clock", 100 /*ms*/};
+
+    // All poll registers on MyADC are read whenever /Timer/tick fires
+    ctk::DeviceModule adc{this, "MyADC", "/Timer/tick"};
+
+    MyControlModule controller{this, "Controller", "PID loop"};
+};
+```
+
+Push registers (interrupt-driven) do not need a trigger; they are read as soon as the device notifies the framework.
+
+#### Exposing only part of a device
+
+Use `pathInDevice` to expose a sub-tree of the register map:
+
+```cpp
+// Only registers under /DAC/CH0 in the device are visible,
+// mounted at the DeviceModule's position in the hierarchy
+ctk::DeviceModule dacCh0{this, "MyDAC", "", nullptr, "/DAC/CH0"};
+```
+
+#### Initialisation handler
+
+If the device needs configuration registers written after (re-)opening, pass a callback.  It is called automatically every time the device comes online — including after a fault recovery:
+
+```cpp
+ctk::DeviceModule fpga{this, "MyFPGA", "/Timer/tick",
+    [](ChimeraTK::Device& dev) {
+        dev.write<uint32_t>("/CTRL/reset",  1);
+        dev.write<uint32_t>("/CTRL/enable", 1);
+    }};
+```
+
+#### Fault handling and recovery
+
+You do not need to write any recovery code.  If a `ChimeraTK::runtime_error` is thrown during a register transfer, the framework:
+
+1. Marks all variables from that device as `DataValidity::faulty`.
+2. Keeps retrying to reopen the device in the background.
+3. Calls the initialisation handler again once the device is back.
+4. Resumes normal operation and clears the faulty flags.
+
+Your `mainLoop` can check `dataValidity()` for safety-critical code paths, but this is optional.
+
+#### Mental model
+
+```
+Hardware register /Controller/setpoint   (device map file)
+         ↕   path matching by the framework
+ApplicationModule accessor  "setpoint"   (resolved to /Controller/setpoint)
+         ↕
+Control system variable    /Controller/setpoint   (EPICS PV, DOOCS property, …)
+```
+
+The same variable path connects hardware, application logic, and the control system — your module code never needs to know which end it is talking to.
 
 ---
 
