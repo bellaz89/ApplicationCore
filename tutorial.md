@@ -617,6 +617,85 @@ Control system variable    /Controller/setpoint   (EPICS PV, DOOCS property, …
 
 The same variable path connects hardware, application logic, and the control system — your module code never needs to know which end it is talking to.
 
+#### Reading the DMAP path and device alias from the config XML
+
+`Application::Application()` constructs the `ConfigReader` before any derived-class members are initialized, so `getConfigReader()` is already usable in member initializers.  This lets you move the DMAP path and device aliases into the XML config file instead of hard-coding them:
+
+```cpp
+struct MyApp : public ctk::Application {
+    MyApp() : Application("MyApp") {}
+    ~MyApp() override { shutdown(); }
+
+    ctk::SetDMapFilePath dmap{
+        getConfigReader().get<std::string>("dmapFile", "myapp.dmap")};
+
+    ctk::DeviceModule board{
+        this,
+        getConfigReader().get<std::string>("boardDevice",  "MyBoard"),
+        getConfigReader().get<std::string>("boardTrigger", "/Timer/tick")};
+
+    ctk::PeriodicTrigger timer{this, "Timer", "10 Hz clock", 100};
+    MyControlModule controller{this, "Controller", "PID loop"};
+};
+```
+
+```xml
+<!-- MyApp-config.xml -->
+<configuration>
+  <variable name="dmapFile"      type="string" value="myapp.dmap" />
+  <variable name="boardDevice"   type="string" value="MyBoard" />
+  <variable name="boardTrigger"  type="string" value="/Timer/tick" />
+</configuration>
+```
+
+#### Multiple devices
+
+You can declare as many `DeviceModule` instances as you need.  The framework manages each device's connection, fault handling, and recovery independently:
+
+```cpp
+struct MyApp : public ctk::Application {
+    MyApp() : Application("MyApp") {}
+    ~MyApp() override { shutdown(); }
+
+    ctk::SetDMapFilePath dmap{"myapp.dmap"};
+
+    ctk::PeriodicTrigger timer{this, "Timer", "10 Hz clock", 100};
+
+    // Each DeviceModule is a separate, independently-managed device connection.
+    ctk::DeviceModule adc {this, "MyADC",  "/Timer/tick"};
+    ctk::DeviceModule dac {this, "MyDAC"};
+    ctk::DeviceModule fpga{this, "MyFPGA", "/Timer/tick",
+        [](ChimeraTK::Device& dev) {
+            dev.write<uint32_t>("/CTRL/enable", 1);
+        }};
+
+    MyControlModule controller{this, "Controller", "PID loop"};
+    MonitorModule   monitor   {this, "Monitor",    "Alarm logic"};
+};
+```
+
+If the ADC faults, the DAC and FPGA keep running — fault isolation is per `DeviceModule`.
+
+#### Splitting one physical device into multiple DeviceModules
+
+Sometimes one physical device serves logically independent subsystems with different triggers or ownership.  Use `pathInDevice` to expose sub-trees, and pass the **same CDD string** (not different alias names) so the framework reuses a single backend connection:
+
+```
+# myapp.dmap
+MyFPGA   (pcie?device=/dev/amc_pcie_0&map=fpga.mmap)
+```
+
+```cpp
+// Two DeviceModules, one backend — safe because CDD strings are identical.
+// Using the alias would create two backends (one per alias lookup).
+const std::string cdd = "(pcie?device=/dev/amc_pcie_0&map=fpga.mmap)";
+
+ctk::DeviceModule fpgaDSP{this, cdd, "/Timer/tick", nullptr, "/DSP"};
+ctk::DeviceModule fpgaIO {this, cdd, "/Timer/tick", nullptr, "/IO"};
+```
+
+Registers under `/DSP/…` and `/IO/…` are published independently, but share one backend instance.  If you used two different alias names pointing to the same CDD the framework would still deduplicate the backend, but using the CDD directly makes the intent explicit.
+
 ---
 
 ## 8. The application configuration file
