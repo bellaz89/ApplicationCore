@@ -209,12 +209,6 @@ namespace ChimeraTK {
 
   /********************************************************************************************************************/
 
-  LuaApplicationModule::LuaApplicationModule(ModuleGroup* owner, const std::string& name,
-      const std::string& description, sol::protected_function mainLoopFn,
-      const std::unordered_set<std::string>& tags)
-  : ApplicationModule(owner, name, description, tags) {
-    captureMainLoop(mainLoopFn);
-  }
 
   /********************************************************************************************************************/
 
@@ -461,21 +455,11 @@ namespace ChimeraTK {
           return sol::make_object(sol::state_view{s}, sol::lua_nil);
         });
 
-    // Factory function: ApplicationModule(owner, name, description[, mainLoopFn])
+    // Factory function: ApplicationModule(owner, name, description)
     lua.set_function("ApplicationModule",
-        sol::overload(
-            // With explicit owner + mainLoop (backward compat)
-            [](LuaModuleGroup& owner, const std::string& name, const std::string& description,
-                sol::protected_function mainLoopFn) -> LuaApplicationModule& {
-              return *dynamic_cast<LuaOwningObject&>(owner).make_child<LuaApplicationModule>(
-                  &owner, name, description, std::move(mainLoopFn));
-            },
-            // With explicit owner, no mainLoop (new API)
-            [](LuaModuleGroup& owner, const std::string& name,
-                const std::string& description) -> LuaApplicationModule& {
-              return *dynamic_cast<LuaOwningObject&>(owner).make_child<LuaApplicationModule>(
-                  &owner, name, description);
-            }));
+        [](LuaModuleGroup& owner, const std::string& name, const std::string& description) -> LuaApplicationModule& {
+          return *dynamic_cast<LuaOwningObject&>(owner).make_child<LuaApplicationModule>(&owner, name, description);
+        });
   }
 
   /********************************************************************************************************************/

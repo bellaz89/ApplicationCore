@@ -253,32 +253,6 @@ local LoggerStream = {}
 function LoggerStream:log(message) end
 
 -- ============================================================
---  ConfigReader
--- ============================================================
-
----@class ConfigReader
-local ConfigReader = {}
-
----Read a scalar value from the configuration.
----@param type    DataType
----@param path    string
----@param default? any   optional default value
----@return any
-function ConfigReader:get(type, path, default) end
-
----Read an array of values from the configuration.
----@param type    DataType
----@param path    string
----@param default? any[]  optional default array
----@return any[]
-function ConfigReader:getArray(type, path, default) end
-
----Return a list of sub-module names under the given path.
----@param path string
----@return string[]
-function ConfigReader:getModules(path) end
-
--- ============================================================
 --  VariableGroup
 -- ============================================================
 
@@ -439,10 +413,6 @@ PriorityMode = {}
 ---@return VersionNumber
 function VersionNumber(nil_arg) end
 
----Obtain the application ConfigReader.
----@return ConfigReader
-function appConfig() end
-
 ---Emit a log line directly (new API).
 ---@param severity Severity
 ---@param context  string
@@ -460,9 +430,7 @@ function logger(severity, context) end
 -- ============================================================
 
 ---@class _ConfigTable
----Read a scalar value, type inferred from default or explicit DataType.
----@overload fun(path: string, default: any): any
----@overload fun(type: DataType, path: string, default: any): any
+---Read a scalar value, type inferred from the Lua default value.
 xmlConfig = {}
 
 ---@param path    string
@@ -511,56 +479,11 @@ function VariableGroup:StatusPollInput(name, description) end
 function VariableGroup:VariableGroup(name, description) end
 
 ---Create an ApplicationModule owned by a ModuleGroup.
----@overload fun(owner: ModuleGroup, name: string, description: string, mainLoop: fun(self: ApplicationModule)): ApplicationModule
----@overload fun(owner: ModuleGroup, name: string, description: string): ApplicationModule
 ---@param owner       ModuleGroup
----@param name         string
----@param description  string
----@param mainLoop?    fun(self: ApplicationModule)  the module's main loop function (old API)
+---@param name        string
+---@param description string
 ---@return ApplicationModule
-function ApplicationModule(owner, name, description, mainLoop) end
-
--- Scalar accessor factories (old API — global free functions)
----@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param description string  @return ScalarAccessor
-function ScalarPushInput(type, owner, name, unit, description) end
----@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param description string  @return ScalarAccessor
-function ScalarPushInputWB(type, owner, name, unit, description) end
----@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param description string  @return ScalarAccessor
-function ScalarPollInput(type, owner, name, unit, description) end
----@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param description string  @return ScalarAccessor
-function ScalarOutput(type, owner, name, unit, description) end
----@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param description string  @return ScalarAccessor
-function ScalarOutputPushRB(type, owner, name, unit, description) end
----@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param description string  @return ScalarAccessor
-function ScalarOutputReverseRecovery(type, owner, name, unit, description) end
-
--- Array accessor factories (old API — global free functions)
----@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param nElements integer  @param description string  @return ArrayAccessor
-function ArrayPushInput(type, owner, name, unit, nElements, description) end
----@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param nElements integer  @param description string  @return ArrayAccessor
-function ArrayPushInputWB(type, owner, name, unit, nElements, description) end
----@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param nElements integer  @param description string  @return ArrayAccessor
-function ArrayPollInput(type, owner, name, unit, nElements, description) end
----@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param nElements integer  @param description string  @return ArrayAccessor
-function ArrayOutput(type, owner, name, unit, nElements, description) end
----@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param nElements integer  @param description string  @return ArrayAccessor
-function ArrayOutputPushRB(type, owner, name, unit, nElements, description) end
----@param type DataType  @param owner ApplicationModule  @param name string  @param unit string  @param nElements integer  @param description string  @return ArrayAccessor
-function ArrayOutputReverseRecovery(type, owner, name, unit, nElements, description) end
-
--- Void accessor factories (old API — global free functions)
----@param owner ApplicationModule  @param name string  @param description string  @return VoidAccessor
-function VoidInput(owner, name, description) end
----@param owner ApplicationModule  @param name string  @param description string  @return VoidAccessor
-function VoidOutput(owner, name, description) end
-
--- Status accessor factories (global free functions)
----@param owner ApplicationModule|VariableGroup  @param name string  @param description string  @return StatusAccessor
-function StatusOutput(owner, name, description) end
----@param owner ApplicationModule|VariableGroup  @param name string  @param description string  @return StatusAccessor
-function StatusPushInput(owner, name, description) end
----@param owner ApplicationModule|VariableGroup  @param name string  @param description string  @return StatusAccessor
-function StatusPollInput(owner, name, description) end
+function ApplicationModule(owner, name, description) end
 
 -- Extra module constructors
 ---Create a PeriodicTrigger module.

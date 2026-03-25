@@ -897,7 +897,7 @@ Path rules: separator is `/`; a leading `/` is stripped automatically so `"/foo"
 
 ### 8.3 Reading values from scripts
 
-See §10.5 for the Lua and Python config APIs.  Lua scripts can use `xmlConfig.get("path", default)` (type inferred from the default) or the legacy `cfg:get(DataType.T, "path")` form; Python uses `cfg.get(DataType.T, "path")`.
+See §10.5 for the Lua and Python config APIs.  Lua scripts use `xmlConfig.get("path", default)` and `xmlConfig.getArray("path", default)` with the type inferred from the Lua default; Python uses `cfg.get(DataType.T, "path")`.
 
 ### 8.4 Declaring scripted modules
 
@@ -1090,7 +1090,7 @@ The sections below show both languages side by side.  The C++ API (§3–§5) is
     </module>
   </module>
 
-  <!-- any other config variables are accessible via xmlConfig.get() or appConfig() -->
+  <!-- any other config variables are accessible via xmlConfig.get() -->
   <variable name="gain" type="float" value="2.5" />
 </configuration>
 ```
@@ -1115,7 +1115,7 @@ The module is imported from Python's `sys.path`, so `controller.py` must be impo
 
 ### 10.2 Module structure
 
-**Lua** — there are two equivalent styles.  The preferred *method-call* style assigns `mainLoop` as a function and uses method syntax for accessor factories:
+**Lua** — assign `mainLoop` as a function and use method syntax for accessor factories:
 
 ```lua
 -- controller.lua  (preferred style)
@@ -1142,8 +1142,6 @@ function mod:mainLoop()
     end
 end
 ```
-
-The *closure* style (passing `mainLoop` as the third argument to `ApplicationModule`) is also supported for backward compatibility.  File-scope locals — including accessor objects — are migrated into each module's own Lua VM as upvalues automatically, so they are always available inside `mainLoop` regardless of which style you use.
 
 **Python equivalent** — subclass `ac.ApplicationModule` and override `mainLoop`.  Accessors are created in `__init__` and the instance is registered on `ac.app`:
 
@@ -1203,7 +1201,7 @@ mod:StatusPushInput ("name", "desc")
 mod:StatusPollInput ("name", "desc")
 ```
 
-The same methods are available on `VariableGroup` objects.  The legacy free-function form (e.g., `ScalarPushInput(DataType.T, mod, "name", "unit", "desc")`) is still accepted.
+The same methods are available on `VariableGroup` objects.
 
 `DataType` constants:
 
@@ -1310,7 +1308,7 @@ self.out.setAndWrite(np.array(self.array) * 2)
 
 ### 10.5 Reading config values from scripts
 
-**Lua** — the preferred API uses the global `xmlConfig` table; the type is inferred from the Lua default value:
+**Lua** — use the global `xmlConfig` table; the type is inferred from the Lua default value:
 
 ```lua
 -- Type inferred from default: number → float64, string → string, boolean → Boolean
@@ -1318,25 +1316,15 @@ local gain    = xmlConfig.get("gain", 1.0)             -- float64
 local label   = xmlConfig.get("label", "default")      -- string
 local enabled = xmlConfig.get("enabled", true)         -- Boolean
 
--- Array: type inferred from first element of the default table
-local lut     = xmlConfig.getArray("lookupTable")      -- table of numbers (no default)
-local flags   = xmlConfig.getArray("flags", {false})   -- table of booleans
+-- Array: type inferred from the first element of the default table
+local lut     = xmlConfig.getArray("lookupTable")           -- table of numbers (no default)
+local names   = xmlConfig.getArray("channelNames", {"A"}) -- table of strings
 
 -- Sub-module names (for dynamic channel creation)
 local modules = xmlConfig.getModules("Sensors")
 
--- Paths are relative to the config root (same as appConfig)
+-- Paths are relative to the config root
 local freq = xmlConfig.get("Controller/sampleFreq", 100.0)
-```
-
-The legacy `appConfig()` form is still available for scripts that need to pass an explicit `DataType`:
-
-```lua
-local cfg = appConfig()
-local gain    = cfg:get(DataType.float64, "gain")
-local label   = cfg:get(DataType.string,  "label", "default")
-local table   = cfg:getArray(DataType.float64, "lookupTable")
-local modules = cfg:getModules("Sensors")
 ```
 
 **Python equivalent** — identical API; call `self.appConfig()` inside a module, or the global `ac.appConfig()` at script level:

@@ -69,8 +69,7 @@ end
 
 > **Tip**: File-scope locals (including accessor objects) are automatically migrated into the
 > per-module VM as upvalues and are available directly inside `mainLoop`. You can also access
-> them via `self.xxx` if you stored them as module properties. Local variables defined *inside*
-> `mainLoop` are always fine.
+> them via `self.xxx` if you stored them as module properties.
 
 ---
 

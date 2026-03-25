@@ -20,13 +20,9 @@ namespace ChimeraTK {
 
   class LuaApplicationModule : public ApplicationModule, public LuaOwningObject {
    public:
-    /// New constructor — no mainLoop arg (new API; mainLoop assigned via mod.mainLoop = function...)
+    /// Construct a module; the Lua script assigns mainLoop via mod.mainLoop = function(...)
     LuaApplicationModule(ModuleGroup* owner, const std::string& name, const std::string& description,
         const std::unordered_set<std::string>& tags = {});
-
-    /// Old constructor — backward compat (mainLoop passed at construction time)
-    LuaApplicationModule(ModuleGroup* owner, const std::string& name, const std::string& description,
-        sol::protected_function mainLoopFn, const std::unordered_set<std::string>& tags = {});
 
     LuaApplicationModule(LuaApplicationModule&&) = default;
 
