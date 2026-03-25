@@ -426,27 +426,31 @@ function log(severity, context, message) end
 function logger(severity, context) end
 
 -- ============================================================
---  xmlConfig global table (new API)
+--  ConfigReader (Lua appConfig() API)
 -- ============================================================
 
----@class _ConfigTable
----Read a scalar value, type inferred from the Lua default value.
-xmlConfig = {}
+---@class ConfigReader
+local ConfigReader = {}
 
+---Read a scalar value, type inferred from the Lua default value.
 ---@param path    string
 ---@param default any   (type inferred: number→float64, string→string, boolean→Boolean)
 ---@return any
-function xmlConfig.get(path, default) end
+function ConfigReader:get(path, default) end
 
 ---@param path    string
 ---@param default any[]  (type inferred from first element)
 ---@return any[]
-function xmlConfig.getArray(path, default) end
+function ConfigReader:getArray(path, default) end
 
 ---Return a list of sub-module names under the given path.
 ---@param path string
 ---@return string[]
-function xmlConfig.getModules(path) end
+function ConfigReader:getModules(path) end
+
+---Obtain the application configuration reader.
+---@return ConfigReader
+function appConfig() end
 
 ---Create a ModuleGroup owned by a parent group (or app root if no owner given).
 ---@overload fun(owner: ModuleGroup, name: string, description: string): ModuleGroup

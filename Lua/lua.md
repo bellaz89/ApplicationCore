@@ -52,11 +52,12 @@ and retrieves accessors via `self.myAccessor`.
 -- mymodule.lua
 
 local mod = ApplicationModule("Control", "A simple controller")
+local cfg = appConfig()
 
 -- Accessors and config values assigned as self properties at script level.
 mod.input  = mod:ScalarPushInput(DataType.float32, "input",  "V", "Raw measurement")
 mod.output = mod:ScalarOutput   (DataType.float32, "output", "V", "Computed setpoint")
-mod.scale  = xmlConfig.get("Control/scale", 2.0)
+mod.scale  = cfg:get("Control/scale", 2.0)
 
 function mod:mainLoop()
     self.output:setAndWrite(0.0)
@@ -241,15 +242,16 @@ Severity levels: `trace`, `debug`, `info`, `warning`, `error`.
 ### Application config
 
 ```lua
-local threshold = xmlConfig.get     ("MyModule/threshold", 1.0)
-local coeffs    = xmlConfig.getArray("MyModule/coefficients")
-local modules   = xmlConfig.getModules("MyModule/channels")
+local cfg       = appConfig()
+local threshold = cfg:get     ("MyModule/threshold", 1.0)
+local coeffs    = cfg:getArray("MyModule/coefficients")
+local modules   = cfg:getModules("MyModule/channels")
 ```
 
 The type is read from the XML and converted automatically to the matching Lua type (number, string,
-or boolean). `xmlConfig.get` and `xmlConfig.getArray` accept an optional default as the second argument;
-omitting it throws if the path is missing. `xmlConfig.getModules` returns a list of child module names
-under the given path.
+or boolean). `appConfig()` returns an object whose `:get` and `:getArray` methods accept an optional
+default as the second argument; omitting it throws if the path is missing. `cfg:getModules` returns
+a list of child module names under the given path.
 
 ---
 
@@ -328,8 +330,9 @@ File-scope locals are automatically migrated into the per-module VM so they can 
 `mainLoop`. This includes plain values (numbers, strings, booleans) and accessor objects:
 
 ```lua
-local scale = xmlConfig.get("MyModule/scale", 1.0)    -- number upvalue
-local label = xmlConfig.get("MyModule/label", "v=")   -- string upvalue
+local cfg   = appConfig()
+local scale = cfg:get("MyModule/scale", 1.0)    -- number upvalue
+local label = cfg:get("MyModule/label", "v=")   -- string upvalue
 
 local mod    = ApplicationModule(app, "MyModule", "Demo")
 local input  = mod:ScalarPushInput(DataType.float32, "input",  "V", "")

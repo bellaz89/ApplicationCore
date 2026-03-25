@@ -897,7 +897,7 @@ Path rules: separator is `/`; a leading `/` is stripped automatically so `"/foo"
 
 ### 8.3 Reading values from scripts
 
-See §10.5 for the Lua and Python config APIs.  Lua scripts use `xmlConfig.get("path", default)` and `xmlConfig.getArray("path", default)` with the type inferred from the Lua default; Python uses `cfg.get(DataType.T, "path")`.
+See §10.5 for the Lua and Python config APIs.  Lua scripts use `local cfg = appConfig()` followed by `cfg:get("path", default)` and `cfg:getArray("path", default)`; Python uses `cfg.get(DataType.T, "path")`.
 
 ### 8.4 Declaring scripted modules
 
@@ -1074,7 +1074,7 @@ ApplicationCore supports two scripting back-ends for writing modules without rec
 | Style | Functional (closure or method) | Class-based (subclass) |
 | Arrays | 1-based, plain tables | 0-based, numpy arrays |
 | Interrupts | String sentinel | `ThreadInterrupted` exception |
-| Config API | `xmlConfig.get(path, default)` | `cfg.get(DataType.T, path)` |
+| Config API | `local cfg = appConfig(); cfg:get(path, default)` | `cfg.get(DataType.T, path)` |
 
 The sections below show both languages side by side.  The C++ API (§3–§5) is the authoritative reference for behaviour; the scripting bindings mirror it closely.
 
@@ -1090,7 +1090,7 @@ The sections below show both languages side by side.  The C++ API (§3–§5) is
     </module>
   </module>
 
-  <!-- any other config variables are accessible via xmlConfig.get() -->
+  <!-- any other config variables are accessible via appConfig():get() -->
   <variable name="gain" type="float" value="2.5" />
 </configuration>
 ```
@@ -1129,7 +1129,8 @@ mod.output   = mod:ScalarOutput   (DataType.float32, "output",   "mA",   "Heater
 mod.gain     = mod:ScalarPollInput(DataType.float32, "gain",     "",     "Control gain")
 
 -- Read a config value — type is inferred from the Lua default.
-local scale = xmlConfig.get("Controller/scale", 1.0)    -- number → float64
+local cfg = appConfig()
+local scale = cfg:get("Controller/scale", 1.0)    -- number → float64
 
 function mod:mainLoop()
     -- File-scope locals (scale) and accessors are available as upvalues.
@@ -1308,23 +1309,26 @@ self.out.setAndWrite(np.array(self.array) * 2)
 
 ### 10.5 Reading config values from scripts
 
-**Lua** — use the global `xmlConfig` table; the type is inferred from the Lua default value:
+**Lua** — use `appConfig()`; the type is inferred from the Lua default value:
 
 ```lua
+local cfg = appConfig()
+
 -- Type inferred from default: number → float64, string → string, boolean → Boolean
-local gain    = xmlConfig.get("gain", 1.0)             -- float64
-local label   = xmlConfig.get("label", "default")      -- string
-local enabled = xmlConfig.get("enabled", true)         -- Boolean
+local gain    = cfg:get("gain", 1.0)             -- float64
+local label   = cfg:get("label", "default")      -- string
+local enabled = cfg:get("enabled", true)         -- Boolean
 
 -- Array: type inferred from the first element of the default table
-local lut     = xmlConfig.getArray("lookupTable")           -- table of numbers (no default)
-local names   = xmlConfig.getArray("channelNames", {"A"}) -- table of strings
+
+local lut     = cfg:getArray("lookupTable")           -- table of numbers (no default)
+local names   = cfg:getArray("channelNames", {"A"}) -- table of strings
 
 -- Sub-module names (for dynamic channel creation)
-local modules = xmlConfig.getModules("Sensors")
+local modules = cfg:getModules("Sensors")
 
 -- Paths are relative to the config root
-local freq = xmlConfig.get("Controller/sampleFreq", 100.0)
+local freq = cfg:get("Controller/sampleFreq", 100.0)
 ```
 
 **Python equivalent** — identical API; call `self.appConfig()` inside a module, or the global `ac.appConfig()` at script level:

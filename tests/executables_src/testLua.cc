@@ -112,7 +112,7 @@ namespace Tests::testLua {
   }
 
   /********************************************************************************************************************/
-  /* Test Lua xmlConfig bindings */
+  /* Test Lua appConfig() bindings */
 
   BOOST_AUTO_TEST_CASE(testAppConfig) {
     std::cout << "***************************************************************************************" << std::endl;
@@ -129,7 +129,7 @@ namespace Tests::testLua {
   }
 
   /********************************************************************************************************************/
-  /* Test method-call accessor factories, upvalue migration, xmlConfig, log() */
+  /* Test method-call accessor factories, upvalue migration, appConfig(), log() */
 
   BOOST_AUTO_TEST_CASE(testNewAPI) {
     std::cout << "***************************************************************************************" << std::endl;

@@ -1,9 +1,10 @@
 -- testLuaUpvalue.lua
 -- Tests that file-scope locals (upvalues) are correctly migrated to module VM.
 
-local addend   = xmlConfig.get("Upvalue/addend",   10.0)
-local prefix   = xmlConfig.get("Upvalue/prefix",   "v=")
-local enabled  = xmlConfig.get("Upvalue/enabled",  true)
+local cfg      = appConfig()
+local addend   = cfg:get("Upvalue/addend",   10.0)
+local prefix   = cfg:get("Upvalue/prefix",   "v=")
+local enabled  = cfg:get("Upvalue/enabled",  true)
 
 local mod = ApplicationModule(app, "Upvalue", "Upvalue migration test")
 
