@@ -9,7 +9,7 @@ namespace ChimeraTK {
 
   /********************************************************************************************************************/
 
-  /// Base class used for all objects in the Lua world which can be owned by another object.
+  /** Base class for all Lua-exposed objects which can be owned by another Lua/C++ object. */
   class LuaOwnedObject {
    public:
     virtual ~LuaOwnedObject() = default;
@@ -17,13 +17,17 @@ namespace ChimeraTK {
 
   /********************************************************************************************************************/
 
-  /// Base class used for all objects in the Lua world which can own other objects and can be owned themselves by one
-  /// other object.
+  /**
+   * Base class for Lua-exposed objects which can own other objects and can in
+   * turn be owned by exactly one parent object.
+   */
   class LuaOwningObject : public LuaOwnedObject {
    public:
-    /// Create object of type Child by passing the given arguments to the constructor of Child, place the created object
-    /// on the internal list of children, and return a non-owning pointer. The ownership of the created object is kept
-    /// by this LuaOwningObject instance (until its destruction).
+    /**
+     * Create an owned child object and return a non-owning pointer to it.
+     *
+     * Ownership remains with this LuaOwningObject instance until destruction.
+     */
     template<class Child, typename... Args>
     Child* make_child(Args... args) { // NOLINT(readability-identifier-naming)
       auto ptr = std::make_unique<Child>(args...);

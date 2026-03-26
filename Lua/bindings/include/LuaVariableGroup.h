@@ -13,11 +13,13 @@ namespace ChimeraTK {
 
   /********************************************************************************************************************/
 
+  /** Lua wrapper for VariableGroup with C++-side ownership management. */
   class LuaVariableGroup : public VariableGroup, public LuaOwningObject {
    public:
     using VariableGroup::VariableGroup;
     LuaVariableGroup(LuaVariableGroup&&) = default;
 
+    /** Register the Lua variable-group bindings into the given Lua state. */
     static void bind(sol::state& lua);
   };
 

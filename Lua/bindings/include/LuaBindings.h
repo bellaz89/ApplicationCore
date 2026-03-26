@@ -8,9 +8,12 @@ namespace sol {
 
 namespace ChimeraTK {
 
-  /// Register all ChimeraTK ApplicationCore bindings into the given Lua state.
-  /// Called by LuaModuleManager::init() for the loading state, and by
-  /// LuaApplicationModule::run() for each per-module execution state.
+  /**
+   * Register all ChimeraTK ApplicationCore bindings into the given Lua state.
+   *
+   * Called by LuaModuleManager::init() for the shared loading state, and by
+   * LuaApplicationModule::run() for each per-module execution state.
+   */
   void registerLuaBindings(sol::state& lua);
 
 } // namespace ChimeraTK

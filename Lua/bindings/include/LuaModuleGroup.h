@@ -13,11 +13,13 @@ namespace ChimeraTK {
 
   /********************************************************************************************************************/
 
+  /** Lua wrapper for ModuleGroup with C++-side ownership management. */
   class LuaModuleGroup : public ModuleGroup, public LuaOwningObject {
    public:
     using ModuleGroup::ModuleGroup;
     LuaModuleGroup(LuaModuleGroup&&) = default;
 
+    /** Register the Lua module-group bindings into the given Lua state. */
     static void bind(sol::state& lua);
   };
 

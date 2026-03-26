@@ -8,8 +8,10 @@ namespace sol {
 
 namespace ChimeraTK {
 
+  /** Register additional ApplicationCore modules exposed to Lua. */
   class LuaExtraModules {
    public:
+    /** Register the extra module factories into the given Lua state. */
     static void bind(sol::state& lua);
   };
 

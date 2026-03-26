@@ -22,15 +22,23 @@ namespace ChimeraTK {
    */
   class LuaModuleManager {
    public:
+    /** Construct an empty Lua module manager. */
     LuaModuleManager();
+    /** Destroy the manager and release any remaining Lua state. */
     ~LuaModuleManager();
 
-    /// Load all Lua modules listed in the application config under \<LuaModules\>.
-    /// Must be called from the Application constructor before initialise().
+    /**
+     * Load all Lua modules listed in the application config under \<LuaModules\>.
+     *
+     * Must be called from the Application constructor before initialise().
+     */
     void createModules(Application& app);
 
-    /// Terminate all Lua ApplicationModule threads and release the Lua state.
-    /// Called from Application::shutdown().
+    /**
+     * Terminate all Lua ApplicationModule threads and release the Lua state.
+     *
+     * Called from Application::shutdown().
+     */
     void deinit();
 
    private:

@@ -18,48 +18,71 @@ namespace ChimeraTK {
 
   /********************************************************************************************************************/
 
+  /**
+   * Lua-backed ApplicationModule implementation.
+   *
+   * The Lua script constructs this object from the shared loading state and
+   * assigns the module mainLoop function to a property. The binding captures
+   * the function bytecode and migratable state, then reconstructs the module in
+   * its dedicated runtime Lua state when the module thread starts.
+   */
   class LuaApplicationModule : public ApplicationModule, public LuaOwningObject {
    public:
-    /// Construct a module; the Lua script assigns mainLoop via mod.mainLoop = function(...)
+    /**
+     * Construct a Lua-backed ApplicationModule.
+     *
+     * The Lua script assigns the main loop afterwards via
+     * mod.mainLoop = function(...) ... end.
+     */
     LuaApplicationModule(ModuleGroup* owner, const std::string& name, const std::string& description,
         const std::unordered_set<std::string>& tags = {});
 
     LuaApplicationModule(LuaApplicationModule&&) = default;
 
+    /** Execute the reconstructed Lua mainLoop in the module thread. */
     void mainLoop() override;
+
+    /** Create the per-module Lua state and prepare execution. */
     void run() override;
+
+    /** Interrupt the running Lua module and release its runtime state. */
     void terminate() override;
 
+    /** Register the Lua ApplicationModule bindings into the given Lua state. */
     static void bind(sol::state& lua);
 
-    /// Build a factory for any migratable Lua value.
+    /** Build a state-migration factory for a Lua value captured during loading. */
     static std::function<sol::object(sol::state_view)> makeFactory(sol::object val);
 
    private:
-    /// Capture mainLoop bytecode + upvalues from a sol::protected_function.
+    /** Capture the mainLoop bytecode and all migratable upvalues. */
     void captureMainLoop(sol::protected_function& fn);
 
-    /// Extract all upvalues from the function at funcIdx on L's stack.
+    /** Extract all upvalues from the function at funcIdx on the Lua stack. */
     static std::vector<std::pair<std::string, std::function<sol::object(sol::state_view)>>> extractUpvalues(
         lua_State* L, int funcIdx);
 
-    /// Bytecode of the user-supplied mainLoop function, captured at construction from the loading state.
+    /** Bytecode of the user-supplied mainLoop function captured from the loading state. */
     std::vector<char> _mainLoopBytecode;
 
-    /// Per-module Lua state created in run(). Only accessed from the module's own C++ thread.
+    /** Per-module runtime Lua state, accessed only from the module thread. */
     std::unique_ptr<sol::state> _moduleState;
 
-    /// The mainLoop function, bound into _moduleState. Only valid after run() is called.
+    /** mainLoop function rebound into _moduleState. Valid only after run() has been called. */
     sol::protected_function _mainLoopFn;
 
-    /// Storage for all module properties (accessors, scalars, strings, tables, functions).
-    /// Maps property names to factory functions that reconstruct the value in the target VM.
+    /**
+     * Storage for all module properties captured in the loading state.
+     *
+     * Maps property names to factory functions which reconstruct the value in a
+     * target runtime VM.
+     */
     std::unordered_map<std::string, std::function<sol::object(sol::state_view)>> _properties;
 
-    /// Upvalue factories for mainLoop: (name, factory) pairs, in upvalue index order.
+    /** Upvalue factories for mainLoop in original upvalue index order. */
     std::vector<std::pair<std::string, std::function<sol::object(sol::state_view)>>> _mainLoopUpvalues;
 
-    /// Mutex protecting _moduleState from concurrent access (e.g. during terminate()).
+    /** Mutex protecting _moduleState from concurrent access during shutdown. */
     std::mutex _mutex;
   };
 

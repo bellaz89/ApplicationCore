@@ -7,16 +7,13 @@
 #include "LuaTransferElement.h"
 
 #include <ChimeraTK/VariantUserTypes.h>
-
-namespace sol {
-  class state;
-  struct this_state;
-} // namespace sol
+#include <sol/sol.hpp>
 
 namespace ChimeraTK {
 
   /********************************************************************************************************************/
 
+  /** Lua wrapper for ApplicationCore array accessors. */
   class LuaArrayAccessor : public LuaTransferElement<LuaArrayAccessor>, public LuaOwnedObject {
     template<template<typename> class AccessorType>
     static UserTypeTemplateVariantNoVoid<ArrayAccessor> createAccessor(ChimeraTK::DataType type, Module* owner,
@@ -24,8 +21,10 @@ namespace ChimeraTK {
         const std::unordered_set<std::string>& tags);
 
    public:
+    /** Default-construct a placeholder accessor for move-based container usage. */
     LuaArrayAccessor() : _accessor(ArrayOutput<int>()) {}
 
+    /** Construct a concrete Lua array accessor for the given ApplicationCore accessor type. */
     template<template<typename> class AccessorType>
     LuaArrayAccessor(AccessorTypeTag<AccessorType>, ChimeraTK::DataType type, Module* owner, const std::string& name,
         const std::string& unit, size_t nElements, const std::string& description,
@@ -35,20 +34,22 @@ namespace ChimeraTK {
     LuaArrayAccessor(LuaArrayAccessor&&) = default;
     ~LuaArrayAccessor();
 
-    /// Get element at 1-based Lua index — view into the underlying C++ buffer (no copy).
+    /** Get an element at a 1-based Lua index. */
     sol::object getElement(sol::this_state s, int index) const;
 
-    /// Set element at 1-based Lua index directly into the underlying C++ buffer (no copy).
+    /** Set an element at a 1-based Lua index. */
     void setElement(int index, sol::object val);
 
+    /** Return the number of elements in the wrapped array accessor. */
     [[nodiscard]] size_t getNElements() const;
 
-    /// Convenience: read() then return self so the caller can iterate immediately.
-    /// e.g.: for i, v in pairs(arr:read()) do ... end
+    /** Perform read() and return the accessor object for immediate Lua-side use. */
     LuaArrayAccessor& readAndGet();
 
+    /** Register the Lua array-accessor bindings into the given Lua state. */
     static void bind(sol::state& lua);
 
+    /** Variant holding the concrete wrapped ApplicationCore accessor instance. */
     mutable UserTypeTemplateVariantNoVoid<ArrayAccessor> _accessor;
   };
 
