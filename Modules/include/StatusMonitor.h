@@ -33,7 +33,22 @@ For more info see \ref statusmonitordoc
 #include "ScalarAccessor.h"
 #include "StatusAccessor.h"
 
+#include <type_traits>
+
 namespace ChimeraTK {
+
+  template<typename T, typename ACCESSOR>
+  auto monitorValue(ACCESSOR& accessor) {
+    if constexpr(std::is_same_v<T, ChimeraTK::Boolean>) {
+      return static_cast<bool>(accessor);
+    }
+    else if constexpr(std::is_same_v<T, std::string>) {
+      return static_cast<std::string&>(accessor);
+    }
+    else {
+      return static_cast<const T&>(accessor);
+    }
+  }
 
   /********************************************************************************************************************/
   /* Declaration of MonitorBase **************************************************************************************/
@@ -260,15 +275,17 @@ namespace ChimeraTK {
   void MaxMonitor<T>::mainLoop() {
     // If there is a change either in value monitored or in requiredValue, the status is re-evaluated
     ReadAnyGroup group{watch, disable, warningThreshold, faultThreshold};
-
     while(true) {
+      const auto watchValue = monitorValue<T>(watch);
+      const auto faultValue = monitorValue<T>(faultThreshold);
+      const auto warningValue = monitorValue<T>(warningThreshold);
       if(disable) {
         setStatus(StatusOutput::Status::OFF);
       }
-      else if(watch >= faultThreshold) {
+      else if(watchValue >= faultValue) {
         setStatus(StatusOutput::Status::FAULT);
       }
-      else if(watch >= warningThreshold) {
+      else if(watchValue >= warningValue) {
         setStatus(StatusOutput::Status::WARNING);
       }
       else {
@@ -304,15 +321,17 @@ namespace ChimeraTK {
   void MinMonitor<T>::mainLoop() {
     // If there is a change either in value monitored or in requiredValue, the status is re-evaluated
     ReadAnyGroup group{watch, disable, warningThreshold, faultThreshold};
-
     while(true) {
+      const auto watchValue = monitorValue<T>(watch);
+      const auto faultValue = monitorValue<T>(faultThreshold);
+      const auto warningValue = monitorValue<T>(warningThreshold);
       if(disable) {
         setStatus(StatusOutput::Status::OFF);
       }
-      else if(watch <= faultThreshold) {
+      else if(watchValue <= faultValue) {
         setStatus(StatusOutput::Status::FAULT);
       }
-      else if(watch <= warningThreshold) {
+      else if(watchValue <= warningValue) {
         setStatus(StatusOutput::Status::WARNING);
       }
       else {
@@ -354,17 +373,21 @@ namespace ChimeraTK {
     // If there is a change either in value monitored or in requiredValue, the status is re-evaluated
     ReadAnyGroup group{
         watch, disable, warningLowerThreshold, warningUpperThreshold, faultLowerThreshold, faultUpperThreshold};
-
     while(true) {
+      const auto watchValue = monitorValue<T>(watch);
+      const auto faultLowerValue = monitorValue<T>(faultLowerThreshold);
+      const auto faultUpperValue = monitorValue<T>(faultUpperThreshold);
+      const auto warningLowerValue = monitorValue<T>(warningLowerThreshold);
+      const auto warningUpperValue = monitorValue<T>(warningUpperThreshold);
       if(disable) {
         setStatus(StatusOutput::Status::OFF);
       }
       // Check for fault limits first. Like this they supersede the warning,
       // even if they are stricter then the warning limits (mis-configuration)
-      else if(watch <= faultLowerThreshold || watch >= faultUpperThreshold) {
+      else if(watchValue <= faultLowerValue || watchValue >= faultUpperValue) {
         setStatus(StatusOutput::Status::FAULT);
       }
-      else if(watch <= warningLowerThreshold || watch >= warningUpperThreshold) {
+      else if(watchValue <= warningLowerValue || watchValue >= warningUpperValue) {
         setStatus(StatusOutput::Status::WARNING);
       }
       else {
@@ -398,12 +421,13 @@ namespace ChimeraTK {
   void ExactMonitor<T>::mainLoop() {
     // If there is a change either in value monitored or in requiredValue, the status is re-evaluated
     ReadAnyGroup group{watch, disable, requiredValue};
-
     while(true) {
+      const auto watchValue = monitorValue<T>(watch);
+      const auto required = monitorValue<T>(requiredValue);
       if(disable) {
         setStatus(StatusOutput::Status::OFF);
       }
-      else if(watch != requiredValue) {
+      else if(watchValue != required) {
         setStatus(StatusOutput::Status::FAULT);
       }
       else {

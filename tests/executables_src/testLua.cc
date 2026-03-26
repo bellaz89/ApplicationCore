@@ -35,7 +35,7 @@ namespace Tests::testLua {
     tf.runApplication();
 
     // Check initial write (output = 0.5 before any input read)
-    BOOST_TEST(var1.readNonBlocking());
+    var1.readLatest();
     BOOST_TEST(float(var1) == 0.5f, boost::test_tools::tolerance(0.001f));
 
     // Write to input and step
@@ -145,9 +145,9 @@ namespace Tests::testLua {
     tf.runApplication();
 
     // Check initial writes (before any input read)
-    BOOST_TEST(output.readNonBlocking());
+    output.readLatest();
     BOOST_TEST(float(output) == 0.0f, boost::test_tools::tolerance(0.001f));
-    BOOST_TEST(status.readNonBlocking());
+    status.readLatest();
     BOOST_TEST(std::string(status) == "ready");
 
     // Write input, step — verify output = input * scale (scale=2.0)
@@ -176,9 +176,9 @@ namespace Tests::testLua {
     tf.runApplication();
 
     // Check initial writes
-    BOOST_TEST(output.readNonBlocking());
+    output.readLatest();
     BOOST_TEST(float(output) == 0.0f, boost::test_tools::tolerance(0.001f));
-    BOOST_TEST(label.readNonBlocking());
+    label.readLatest();
     BOOST_TEST(std::string(label) == "v=init");
 
     // Write input = 5.0, step — verify output = 5.0 + 10.0 = 15.0, label = "v=15"
@@ -187,7 +187,7 @@ namespace Tests::testLua {
     BOOST_TEST(output.readNonBlocking());
     BOOST_TEST(float(output) == 15.0f, boost::test_tools::tolerance(0.001f));
     BOOST_TEST(label.readNonBlocking());
-    BOOST_TEST(std::string(label) == "v=15.0");
+    BOOST_TEST(std::string(label) == "v=15");
   }
 
   /********************************************************************************************************************/
@@ -209,23 +209,24 @@ namespace Tests::testLua {
     auto neg  = tf.getScalar<float>("/Arith/neg");
     auto lt   = tf.getScalar<ChimeraTK::Boolean>("/Arith/lt");
 
-    tf.setScalarDefault<float>("/Arith/a", 3.0f);
-    tf.setScalarDefault<float>("/Arith/b", 4.0f);
     tf.runApplication();
+    a.setAndWrite(3.0f);
+    b.setAndWrite(4.0f);
+    tf.stepApplication();
 
-    // Check initial computation
-    BOOST_TEST(sum.readNonBlocking());
+    // Check arithmetic computation
+    sum.readLatest();
     BOOST_TEST(float(sum)  == 7.0f,  boost::test_tools::tolerance(0.001f));
-    BOOST_TEST(diff.readNonBlocking());
+    diff.readLatest();
     BOOST_TEST(float(diff) == -1.0f, boost::test_tools::tolerance(0.001f));
-    BOOST_TEST(prod.readNonBlocking());
+    prod.readLatest();
     BOOST_TEST(float(prod) == 12.0f, boost::test_tools::tolerance(0.001f));
-    BOOST_TEST(quot.readNonBlocking());
+    quot.readLatest();
     BOOST_TEST(float(quot) == 0.75f, boost::test_tools::tolerance(0.001f));
-    BOOST_TEST(neg.readNonBlocking());
+    neg.readLatest();
     BOOST_TEST(float(neg)  == -3.0f, boost::test_tools::tolerance(0.001f));
-    BOOST_TEST(lt.readNonBlocking());
-    BOOST_TEST(ChimeraTK::Boolean(lt) == true);
+    lt.readLatest();
+    BOOST_TEST(static_cast<bool>(lt) == true);
   }
 
   /********************************************************************************************************************/

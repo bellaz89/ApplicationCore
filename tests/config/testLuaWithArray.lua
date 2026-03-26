@@ -21,9 +21,10 @@ function mod:mainLoop()
   self.arrayOut1:write()
 
   while true do
+    local arr2 = self.arrayIn2:readAndGet()
     local sum2 = 0
-    for _, v in pairs(self.arrayIn2:readAndGet()) do
-      sum2 = sum2 + v
+    for i = 1, #arr2 do
+      sum2 = sum2 + arr2[i]
     end
     for i = 1, #self.arrayOut2 do
       self.arrayOut2[i] = sum2 + (i - 1)

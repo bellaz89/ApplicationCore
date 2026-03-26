@@ -5,8 +5,8 @@
         </module>
     </module>
     <variable name="stringScalar" type="string" value="a string scalar" />
-    <variable name="floatScalar"  type="float"  value="815.4711" />
-    <variable name="floatArray"   type="float">
+    <variable name="floatScalar"  type="double"  value="815.4711" />
+    <variable name="floatArray"   type="double">
         <value i="0" v="0.5" />
         <value i="1" v="0.6" />
         <value i="2" v="1.5" />

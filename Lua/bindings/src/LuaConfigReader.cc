@@ -22,7 +22,7 @@ namespace ChimeraTK {
     }
     if(defaultValue.get_type() == sol::type::boolean) {
       bool def = defaultValue.as<bool>();
-      return sol::make_object(sv, reader.get<ChimeraTK::Boolean>(path, def));
+      return sol::make_object(sv, static_cast<bool>(reader.get<ChimeraTK::Boolean>(path, def)));
     }
     if(defaultValue == sol::lua_nil) {
       return sol::make_object(sv, reader.get<double>(path));

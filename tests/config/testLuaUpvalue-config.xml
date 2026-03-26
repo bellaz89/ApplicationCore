@@ -6,7 +6,7 @@
     </module>
   </module>
   <module name="Upvalue">
-    <variable name="addend"  type="float"   value="10.0" />
+    <variable name="addend"  type="double"   value="10.0" />
     <variable name="prefix"  type="string"  value="v=" />
     <variable name="enabled" type="boolean" value="true" />
   </module>

@@ -17,7 +17,7 @@
 #include "LuaVariableGroup.h"
 #include "LuaVoidAccessor.h"
 
-#include <ChimeraTK/DataType.h>
+#include <ChimeraTK/SupportedUserTypes.h>
 #include <ChimeraTK/TransferElementID.h>
 
 #include <sol/sol.hpp>
@@ -29,7 +29,7 @@ namespace ChimeraTK {
   /********************************************************************************************************************/
 
   void registerLuaBindings(sol::state& lua) {
-    lua.open_libraries(sol::lib::base, sol::lib::string, sol::lib::table, sol::lib::math, sol::lib::io, sol::lib::os,
+    lua.open_libraries(sol::lib::base, sol::lib::package, sol::lib::string, sol::lib::table, sol::lib::math, sol::lib::io, sol::lib::os,
         sol::lib::debug);
 
     // ---- DataType -------------------------------------------------------
@@ -39,7 +39,7 @@ namespace ChimeraTK {
         sol::meta_function::equal_to,
         [](const DataType& a, const DataType& b) { return a == b; },
         sol::meta_function::to_string,
-        [](const DataType& dt) { return std::string(dt); });
+        [](const DataType& dt) -> std::string { return dt.getAsString(); });
 
     // Expose as a table of named constants (DataType userdata objects).
     // Replacing the global after new_usertype is safe: the metatable stays in the Lua registry.
@@ -59,13 +59,11 @@ namespace ChimeraTK {
         "Void", DataType{DataType::Void});
 
     // ---- DataValidity ----------------------------------------------------
-    lua.new_enum<DataValidity>("DataValidity", "ok", DataValidity::ok, "faulty", DataValidity::faulty);
+    lua.new_enum("DataValidity", "ok", DataValidity::ok, "faulty", DataValidity::faulty);
 
     // ---- VersionNumber ---------------------------------------------------
     lua.new_usertype<VersionNumber>("VersionNumber",
         sol::no_constructor,
-        "isNullVersion",
-        &VersionNumber::isNullVersion,
         sol::meta_function::equal_to,
         [](const VersionNumber& a, const VersionNumber& b) { return a == b; },
         sol::meta_function::less_than,
@@ -73,11 +71,7 @@ namespace ChimeraTK {
         sol::meta_function::less_than_or_equal_to,
         [](const VersionNumber& a, const VersionNumber& b) { return a <= b; },
         sol::meta_function::to_string,
-        [](const VersionNumber& v) -> std::string {
-          std::ostringstream ss;
-          ss << v;
-          return ss.str();
-        });
+        [](const VersionNumber& v) -> std::string { return static_cast<std::string>(v); });
 
     // Constructor function: VersionNumber() → new unique version; VersionNumber(nil) → null version.
     lua.set_function("VersionNumber",

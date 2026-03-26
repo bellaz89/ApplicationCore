@@ -86,8 +86,8 @@ namespace ChimeraTK {
         static_cast<int>(StatusAccessorBase::Status::FAULT));
 
     lua.new_usertype<LuaStatusAccessor>("StatusAccessor",
-        sol::base_classes, sol::bases<LuaTransferElementBase>(),
         sol::no_constructor,
+        sol::base_classes, sol::bases<LuaTransferElementBase>(),
         "read", &LuaStatusAccessor::read,
         "readNonBlocking", &LuaStatusAccessor::readNonBlocking,
         "readLatest", &LuaStatusAccessor::readLatest,

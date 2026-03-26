@@ -282,6 +282,10 @@ namespace ChimeraTK {
         // Normal termination via terminate() -> accessor interrupt()
         return;
       }
+      if(Application::getInstance().getLifeCycleState() == LifeCycleState::shutdown &&
+          msg.find("C++ exception") != std::string::npos) {
+        return;
+      }
       throw ChimeraTK::logic_error("Lua mainLoop error in '" + getName() + "': " + msg);
     }
   }

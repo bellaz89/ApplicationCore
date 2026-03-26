@@ -47,7 +47,12 @@ namespace ChimeraTK {
           using T = typename ACC::value_type;
           // Use operator T() directly on the accessor — avoids getHighLevelImplElement()
           // and the dynamic_pointer_cast + atomic refcount bumps on every read.
-          return sol::make_object(s, static_cast<T>(acc));
+          if constexpr(std::is_same_v<T, ChimeraTK::Boolean>) {
+            return sol::make_object(s, static_cast<bool>(acc));
+          }
+          else {
+            return sol::make_object(s, static_cast<T>(acc));
+          }
         },
         _accessor);
   }
@@ -66,7 +71,12 @@ namespace ChimeraTK {
         [&val](auto& acc) {
           using ACC = std::remove_reference_t<decltype(acc)>;
           using T = typename ACC::value_type;
-          acc = val.as<T>();
+          if constexpr(std::is_same_v<T, ChimeraTK::Boolean>) {
+            acc = val.as<bool>();
+          }
+          else {
+            acc = val.as<T>();
+          }
         },
         _accessor);
   }
@@ -85,7 +95,12 @@ namespace ChimeraTK {
         [&val](auto& acc) {
           using ACC = std::remove_reference_t<decltype(acc)>;
           using T = typename ACC::value_type;
-          acc.writeIfDifferent(val.as<T>());
+          if constexpr(std::is_same_v<T, ChimeraTK::Boolean>) {
+            acc.writeIfDifferent(val.as<bool>());
+          }
+          else {
+            acc.writeIfDifferent(val.as<T>());
+          }
         },
         _accessor);
   }
@@ -99,14 +114,22 @@ namespace ChimeraTK {
           [](auto& acc) {
             using ACC = std::remove_reference_t<decltype(acc)>;
             using T = typename ACC::value_type;
-            return static_cast<double>(static_cast<T>(acc));
+            if constexpr(std::is_same_v<T, ChimeraTK::Boolean>) {
+              return static_cast<double>(static_cast<bool>(acc));
+            }
+            else if constexpr(std::is_same_v<T, std::string>) {
+              return 0.0;
+            }
+            else {
+              return static_cast<double>(static_cast<T>(acc));
+            }
           },
           a._accessor);
     };
 
     lua.new_usertype<LuaScalarAccessor>("ScalarAccessor",
-        sol::base_classes, sol::bases<LuaTransferElementBase>(),
         sol::no_constructor,
+        sol::base_classes, sol::bases<LuaTransferElementBase>(),
         "read", &LuaScalarAccessor::read,
         "readNonBlocking", &LuaScalarAccessor::readNonBlocking,
         "readLatest", &LuaScalarAccessor::readLatest,
@@ -130,49 +153,57 @@ namespace ChimeraTK {
 
         // Arithmetic metamethods
         sol::meta_function::addition,
-        [getDouble](const LuaScalarAccessor& a, sol::object b, sol::this_state s) -> sol::object {
-          sol::state_view sv(s);
-          double av = getDouble(a);
-          double bv = b.is<LuaScalarAccessor>() ? getDouble(b.as<const LuaScalarAccessor&>()) : b.as<double>();
-          return sol::make_object(sv, av + bv);
-        },
+        sol::overload(
+            [getDouble](const LuaScalarAccessor& a, const LuaScalarAccessor& b, sol::this_state s) -> sol::object {
+              sol::state_view sv(s);
+              return sol::make_object(sv, getDouble(a) + getDouble(b));
+            },
+            [getDouble](const LuaScalarAccessor& a, double b, sol::this_state s) -> sol::object {
+              sol::state_view sv(s);
+              return sol::make_object(sv, getDouble(a) + b);
+            }),
         sol::meta_function::subtraction,
-        [getDouble](const LuaScalarAccessor& a, sol::object b, sol::this_state s) -> sol::object {
-          sol::state_view sv(s);
-          double av = getDouble(a);
-          double bv = b.is<LuaScalarAccessor>() ? getDouble(b.as<const LuaScalarAccessor&>()) : b.as<double>();
-          return sol::make_object(sv, av - bv);
-        },
+        sol::overload(
+            [getDouble](const LuaScalarAccessor& a, const LuaScalarAccessor& b, sol::this_state s) -> sol::object {
+              sol::state_view sv(s);
+              return sol::make_object(sv, getDouble(a) - getDouble(b));
+            },
+            [getDouble](const LuaScalarAccessor& a, double b, sol::this_state s) -> sol::object {
+              sol::state_view sv(s);
+              return sol::make_object(sv, getDouble(a) - b);
+            }),
         sol::meta_function::multiplication,
-        [getDouble](const LuaScalarAccessor& a, sol::object b, sol::this_state s) -> sol::object {
-          sol::state_view sv(s);
-          double av = getDouble(a);
-          double bv = b.is<LuaScalarAccessor>() ? getDouble(b.as<const LuaScalarAccessor&>()) : b.as<double>();
-          return sol::make_object(sv, av * bv);
-        },
+        sol::overload(
+            [getDouble](const LuaScalarAccessor& a, const LuaScalarAccessor& b, sol::this_state s) -> sol::object {
+              sol::state_view sv(s);
+              return sol::make_object(sv, getDouble(a) * getDouble(b));
+            },
+            [getDouble](const LuaScalarAccessor& a, double b, sol::this_state s) -> sol::object {
+              sol::state_view sv(s);
+              return sol::make_object(sv, getDouble(a) * b);
+            }),
         sol::meta_function::division,
-        [getDouble](const LuaScalarAccessor& a, sol::object b, sol::this_state s) -> sol::object {
-          sol::state_view sv(s);
-          double av = getDouble(a);
-          double bv = b.is<LuaScalarAccessor>() ? getDouble(b.as<const LuaScalarAccessor&>()) : b.as<double>();
-          return sol::make_object(sv, av / bv);
-        },
+        sol::overload(
+            [getDouble](const LuaScalarAccessor& a, const LuaScalarAccessor& b, sol::this_state s) -> sol::object {
+              sol::state_view sv(s);
+              return sol::make_object(sv, getDouble(a) / getDouble(b));
+            },
+            [getDouble](const LuaScalarAccessor& a, double b, sol::this_state s) -> sol::object {
+              sol::state_view sv(s);
+              return sol::make_object(sv, getDouble(a) / b);
+            }),
         sol::meta_function::unary_minus,
         [getDouble](const LuaScalarAccessor& a, sol::this_state s) -> sol::object {
           sol::state_view sv(s);
           return sol::make_object(sv, -getDouble(a));
         },
         sol::meta_function::less_than,
-        [getDouble](const LuaScalarAccessor& a, sol::object b) -> bool {
-          double av = getDouble(a);
-          double bv = b.is<LuaScalarAccessor>() ? getDouble(b.as<const LuaScalarAccessor&>()) : b.as<double>();
-          return av < bv;
+        [getDouble](const LuaScalarAccessor& a, const LuaScalarAccessor& b) -> bool {
+          return getDouble(a) < getDouble(b);
         },
         sol::meta_function::less_than_or_equal_to,
-        [getDouble](const LuaScalarAccessor& a, sol::object b) -> bool {
-          double av = getDouble(a);
-          double bv = b.is<LuaScalarAccessor>() ? getDouble(b.as<const LuaScalarAccessor&>()) : b.as<double>();
-          return av <= bv;
+        [getDouble](const LuaScalarAccessor& a, const LuaScalarAccessor& b) -> bool {
+          return getDouble(a) <= getDouble(b);
         },
         sol::meta_function::to_string,
         [getDouble](const LuaScalarAccessor& a) -> std::string {
@@ -185,6 +216,9 @@ namespace ChimeraTK {
                 using T = typename ACC::value_type;
                 if constexpr(std::is_same_v<T, std::string>) {
                   valStr = static_cast<T>(acc);
+                }
+                else if constexpr(std::is_same_v<T, ChimeraTK::Boolean>) {
+                  valStr = static_cast<bool>(acc) ? "true" : "false";
                 }
                 else {
                   valStr = std::to_string(static_cast<T>(acc));
@@ -234,5 +268,32 @@ namespace ChimeraTK {
   }
 
   /********************************************************************************************************************/
+
+
+  template UserTypeTemplateVariantNoVoid<ScalarAccessor> LuaScalarAccessor::createAccessor<ScalarPushInput>(
+      ChimeraTK::DataType, Module*, const std::string&, const std::string&, const std::string&, const std::unordered_set<std::string>&);
+  template UserTypeTemplateVariantNoVoid<ScalarAccessor> LuaScalarAccessor::createAccessor<ScalarPushInputWB>(
+      ChimeraTK::DataType, Module*, const std::string&, const std::string&, const std::string&, const std::unordered_set<std::string>&);
+  template UserTypeTemplateVariantNoVoid<ScalarAccessor> LuaScalarAccessor::createAccessor<ScalarPollInput>(
+      ChimeraTK::DataType, Module*, const std::string&, const std::string&, const std::string&, const std::unordered_set<std::string>&);
+  template UserTypeTemplateVariantNoVoid<ScalarAccessor> LuaScalarAccessor::createAccessor<ScalarOutput>(
+      ChimeraTK::DataType, Module*, const std::string&, const std::string&, const std::string&, const std::unordered_set<std::string>&);
+  template UserTypeTemplateVariantNoVoid<ScalarAccessor> LuaScalarAccessor::createAccessor<ScalarOutputPushRB>(
+      ChimeraTK::DataType, Module*, const std::string&, const std::string&, const std::string&, const std::unordered_set<std::string>&);
+  template UserTypeTemplateVariantNoVoid<ScalarAccessor> LuaScalarAccessor::createAccessor<ScalarOutputReverseRecovery>(
+      ChimeraTK::DataType, Module*, const std::string&, const std::string&, const std::string&, const std::unordered_set<std::string>&);
+
+  template LuaScalarAccessor::LuaScalarAccessor(AccessorTypeTag<ScalarPushInput>, ChimeraTK::DataType, Module*,
+      const std::string&, const std::string&, const std::string&, const std::unordered_set<std::string>&);
+  template LuaScalarAccessor::LuaScalarAccessor(AccessorTypeTag<ScalarPushInputWB>, ChimeraTK::DataType, Module*,
+      const std::string&, const std::string&, const std::string&, const std::unordered_set<std::string>&);
+  template LuaScalarAccessor::LuaScalarAccessor(AccessorTypeTag<ScalarPollInput>, ChimeraTK::DataType, Module*,
+      const std::string&, const std::string&, const std::string&, const std::unordered_set<std::string>&);
+  template LuaScalarAccessor::LuaScalarAccessor(AccessorTypeTag<ScalarOutput>, ChimeraTK::DataType, Module*,
+      const std::string&, const std::string&, const std::string&, const std::unordered_set<std::string>&);
+  template LuaScalarAccessor::LuaScalarAccessor(AccessorTypeTag<ScalarOutputPushRB>, ChimeraTK::DataType, Module*,
+      const std::string&, const std::string&, const std::string&, const std::unordered_set<std::string>&);
+  template LuaScalarAccessor::LuaScalarAccessor(AccessorTypeTag<ScalarOutputReverseRecovery>, ChimeraTK::DataType, Module*,
+      const std::string&, const std::string&, const std::string&, const std::unordered_set<std::string>&);
 
 } // namespace ChimeraTK

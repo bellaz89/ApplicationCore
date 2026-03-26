@@ -26,8 +26,8 @@ namespace ChimeraTK {
 
   void LuaVoidAccessor::bind(sol::state& lua) {
     lua.new_usertype<LuaVoidAccessor>("VoidAccessor",
-        sol::base_classes, sol::bases<LuaTransferElementBase>(),
         sol::no_constructor,
+        sol::base_classes, sol::bases<LuaTransferElementBase>(),
         "read", &LuaVoidAccessor::read,
         "readNonBlocking", &LuaVoidAccessor::readNonBlocking,
         "readLatest", &LuaVoidAccessor::readLatest,
@@ -56,5 +56,9 @@ namespace ChimeraTK {
   }
 
   /********************************************************************************************************************/
+
+
+  template LuaVoidAccessor::LuaVoidAccessor(VoidTypeTag<VoidInput>, Module*, const std::string&, const std::string&, const std::unordered_set<std::string>&);
+  template LuaVoidAccessor::LuaVoidAccessor(VoidTypeTag<VoidOutput>, Module*, const std::string&, const std::string&, const std::unordered_set<std::string>&);
 
 } // namespace ChimeraTK

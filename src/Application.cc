@@ -56,6 +56,10 @@ Application::Application(const std::string& name) : ApplicationBase(name), Modul
     Application::shutdown();
     std::rethrow_exception(std::current_exception());
   }
+  catch(...) {
+    Application::shutdown();
+    throw;
+  }
 #endif
 
   // Create Lua modules
@@ -66,6 +70,10 @@ Application::Application(const std::string& name) : ApplicationBase(name), Modul
   catch(ChimeraTK::logic_error&) {
     Application::shutdown();
     std::rethrow_exception(std::current_exception());
+  }
+  catch(...) {
+    Application::shutdown();
+    throw;
   }
 #endif
 }
@@ -252,8 +260,10 @@ void Application::shutdown() {
 
   _circularDependencyDetector.terminate();
 
+#ifdef CHIMERATK_APPLICATION_CORE_WITH_PYTHON
   // Since the destructor of the Application may come too late, we will de-init the Python system here
   getPythonModuleManager().deinit();
+#endif
 
   // Deinit Lua module manager (terminate Lua module threads and release Lua state)
 #ifdef CHIMERATK_APPLICATION_CORE_WITH_LUA

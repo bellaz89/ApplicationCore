@@ -70,11 +70,12 @@ namespace ChimeraTK {
 
   void LuaArrayAccessor::bind(sol::state& lua) {
     lua.new_usertype<LuaArrayAccessor>("ArrayAccessor",
-        sol::base_classes, sol::bases<LuaTransferElementBase>(),
         sol::no_constructor,
+        sol::base_classes, sol::bases<LuaTransferElementBase>(),
         "read", &LuaArrayAccessor::read,
         "readNonBlocking", &LuaArrayAccessor::readNonBlocking,
         "readLatest", &LuaArrayAccessor::readLatest,
+        "readAndGet", &LuaArrayAccessor::readAndGet,
         "write", &LuaArrayAccessor::write,
         "writeDestructively", &LuaArrayAccessor::writeDestructively,
         "getNElements", &LuaArrayAccessor::getNElements,
@@ -92,21 +93,8 @@ namespace ChimeraTK {
         // View metamethods: arr[i] and arr[i] = v — directly into the C++ buffer, no copy.
         sol::meta_function::index, &LuaArrayAccessor::getElement,
         sol::meta_function::new_index, &LuaArrayAccessor::setElement,
-        sol::meta_function::length, &LuaArrayAccessor::getNElements,
-
-        // pairs/ipairs-compatible stateful iterator.
-        // Returns (iterator_fn, arr, 0) so `for i, v in pairs(arr)` works.
-        sol::meta_function::pairs,
-        [](LuaArrayAccessor& arr) {
-          auto iterFn = [](LuaArrayAccessor& a, int i, sol::this_state s) -> std::tuple<sol::object, sol::object> {
-            int next = i + 1;
-            if(static_cast<size_t>(next) > a.getNElements()) {
-              return {sol::lua_nil, sol::lua_nil};
-            }
-            return {sol::make_object(s, next), a.getElement(s, next)};
-          };
-          return std::make_tuple(sol::as_function(iterFn), std::ref(arr), 0);
-        });
+        sol::meta_function::length, &LuaArrayAccessor::getNElements
+    );
 
     // Array accessor factory functions.
     lua.set_function("ArrayPushInput",
@@ -148,5 +136,32 @@ namespace ChimeraTK {
   }
 
   /********************************************************************************************************************/
+
+
+  template UserTypeTemplateVariantNoVoid<ArrayAccessor> LuaArrayAccessor::createAccessor<ArrayPushInput>(
+      ChimeraTK::DataType, Module*, const std::string&, const std::string&, size_t, const std::string&, const std::unordered_set<std::string>&);
+  template UserTypeTemplateVariantNoVoid<ArrayAccessor> LuaArrayAccessor::createAccessor<ArrayPushInputWB>(
+      ChimeraTK::DataType, Module*, const std::string&, const std::string&, size_t, const std::string&, const std::unordered_set<std::string>&);
+  template UserTypeTemplateVariantNoVoid<ArrayAccessor> LuaArrayAccessor::createAccessor<ArrayPollInput>(
+      ChimeraTK::DataType, Module*, const std::string&, const std::string&, size_t, const std::string&, const std::unordered_set<std::string>&);
+  template UserTypeTemplateVariantNoVoid<ArrayAccessor> LuaArrayAccessor::createAccessor<ArrayOutput>(
+      ChimeraTK::DataType, Module*, const std::string&, const std::string&, size_t, const std::string&, const std::unordered_set<std::string>&);
+  template UserTypeTemplateVariantNoVoid<ArrayAccessor> LuaArrayAccessor::createAccessor<ArrayOutputPushRB>(
+      ChimeraTK::DataType, Module*, const std::string&, const std::string&, size_t, const std::string&, const std::unordered_set<std::string>&);
+  template UserTypeTemplateVariantNoVoid<ArrayAccessor> LuaArrayAccessor::createAccessor<ArrayOutputReverseRecovery>(
+      ChimeraTK::DataType, Module*, const std::string&, const std::string&, size_t, const std::string&, const std::unordered_set<std::string>&);
+
+  template LuaArrayAccessor::LuaArrayAccessor(AccessorTypeTag<ArrayPushInput>, ChimeraTK::DataType, Module*,
+      const std::string&, const std::string&, size_t, const std::string&, const std::unordered_set<std::string>&);
+  template LuaArrayAccessor::LuaArrayAccessor(AccessorTypeTag<ArrayPushInputWB>, ChimeraTK::DataType, Module*,
+      const std::string&, const std::string&, size_t, const std::string&, const std::unordered_set<std::string>&);
+  template LuaArrayAccessor::LuaArrayAccessor(AccessorTypeTag<ArrayPollInput>, ChimeraTK::DataType, Module*,
+      const std::string&, const std::string&, size_t, const std::string&, const std::unordered_set<std::string>&);
+  template LuaArrayAccessor::LuaArrayAccessor(AccessorTypeTag<ArrayOutput>, ChimeraTK::DataType, Module*,
+      const std::string&, const std::string&, size_t, const std::string&, const std::unordered_set<std::string>&);
+  template LuaArrayAccessor::LuaArrayAccessor(AccessorTypeTag<ArrayOutputPushRB>, ChimeraTK::DataType, Module*,
+      const std::string&, const std::string&, size_t, const std::string&, const std::unordered_set<std::string>&);
+  template LuaArrayAccessor::LuaArrayAccessor(AccessorTypeTag<ArrayOutputReverseRecovery>, ChimeraTK::DataType, Module*,
+      const std::string&, const std::string&, size_t, const std::string&, const std::unordered_set<std::string>&);
 
 } // namespace ChimeraTK

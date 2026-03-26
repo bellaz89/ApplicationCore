@@ -4,6 +4,7 @@
 #include "LuaModuleManager.h"
 
 #include "Application.h"
+#include "ConfigReader.h"
 #include "LuaBindings.h"
 #include "LuaModuleGroup.h"
 
@@ -75,6 +76,10 @@ namespace ChimeraTK {
       init(app);
 
       auto name = config.get<std::string>("LuaModules/" + module + "/path");
+      auto moduleName = name;
+      if(moduleName.size() > 4 && moduleName.substr(moduleName.size() - 4) == ".lua") {
+        moduleName.resize(moduleName.size() - 4);
+      }
       std::lock_guard<std::mutex> lock(_impl->loadMutex);
 
       std::cout << "LuaModuleManager: Loading module " << name << std::endl;
@@ -83,7 +88,7 @@ namespace ChimeraTK {
       // package.path is searched (set up in init()). require() also deduplicates —
       // multiple config entries pointing at the same module name load it only once.
       sol::protected_function require = (*_impl->loadState)["require"];
-      auto result = require(name);
+      auto result = require(moduleName);
 
       if(!result.valid()) {
         sol::error err = result;

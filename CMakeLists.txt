@@ -45,7 +45,7 @@ if(ENABLE_LUA_BINDINGS)
   set(_lua_found FALSE)
 
   if(LUA_IMPL STREQUAL "AUTO" OR LUA_IMPL STREQUAL "LUAJIT")
-    PKG_CHECK_MODULES(LuaJIT luajit)
+    PKG_CHECK_MODULES(LuaJIT REQUIRED IMPORTED_TARGET luajit)
     if(LuaJIT_FOUND)
       set(_lua_found TRUE)
       set(_lua_link_target PkgConfig::LuaJIT)
