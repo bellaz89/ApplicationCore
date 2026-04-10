@@ -77,7 +77,7 @@ namespace ChimeraTK {
 
       auto name = config.get<std::string>("LuaModules/" + module + "/path");
       auto moduleName = name;
-      if(moduleName.size() > 4 && moduleName.substr(moduleName.size() - 4) == ".lua") {
+      if(moduleName.ends_with(".lua")) {
         moduleName.resize(moduleName.size() - 4);
       }
       std::lock_guard<std::mutex> lock(_impl->loadMutex);

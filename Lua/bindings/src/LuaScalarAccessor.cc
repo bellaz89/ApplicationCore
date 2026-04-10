@@ -60,8 +60,20 @@ namespace ChimeraTK {
   /********************************************************************************************************************/
 
   sol::object LuaScalarAccessor::readAndGet(sol::this_state s) {
-    visit([](auto& acc) { acc.read(); });
-    return get(s);
+    // Single visit: fuse read() + get() to avoid paying the variant dispatch twice.
+    return std::visit(
+        [&s](auto& acc) -> sol::object {
+          acc.read();
+          using ACC = std::remove_reference_t<decltype(acc)>;
+          using T = typename ACC::value_type;
+          if constexpr(std::is_same_v<T, ChimeraTK::Boolean>) {
+            return sol::make_object(s, static_cast<bool>(acc));
+          }
+          else {
+            return sol::make_object(s, static_cast<T>(acc));
+          }
+        },
+        _accessor);
   }
 
   /********************************************************************************************************************/
@@ -84,8 +96,20 @@ namespace ChimeraTK {
   /********************************************************************************************************************/
 
   void LuaScalarAccessor::setAndWrite(sol::object val) {
-    set(val);
-    write();
+    // Single visit: fuse set() + write() to avoid paying the variant dispatch twice.
+    std::visit(
+        [&val](auto& acc) {
+          using ACC = std::remove_reference_t<decltype(acc)>;
+          using T = typename ACC::value_type;
+          if constexpr(std::is_same_v<T, ChimeraTK::Boolean>) {
+            acc = val.as<bool>();
+          }
+          else {
+            acc = val.as<T>();
+          }
+          acc.write();
+        },
+        _accessor);
   }
 
   /********************************************************************************************************************/

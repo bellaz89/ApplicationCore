@@ -46,8 +46,13 @@ namespace ChimeraTK {
   /********************************************************************************************************************/
 
   int LuaStatusAccessor::readAndGet() {
-    std::visit([](auto& acc) { acc.read(); }, _accessor);
-    return get();
+    // Single visit: fuse read() + get() to avoid paying the variant dispatch twice.
+    return std::visit(
+        [](auto& acc) {
+          acc.read();
+          return static_cast<int>(static_cast<StatusAccessorBase::Status>(acc));
+        },
+        _accessor);
   }
 
   /********************************************************************************************************************/
@@ -59,8 +64,13 @@ namespace ChimeraTK {
   /********************************************************************************************************************/
 
   void LuaStatusAccessor::setAndWrite(int val) {
-    set(val);
-    std::visit([](auto& acc) { acc.write(); }, _accessor);
+    // Single visit: fuse set() + write() to avoid paying the variant dispatch twice.
+    std::visit(
+        [val](auto& acc) {
+          acc = static_cast<StatusAccessorBase::Status>(val);
+          acc.write();
+        },
+        _accessor);
   }
 
   /********************************************************************************************************************/

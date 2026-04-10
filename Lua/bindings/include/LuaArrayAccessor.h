@@ -46,6 +46,24 @@ namespace ChimeraTK {
     /** Perform read() and return the accessor object for immediate Lua-side use. */
     LuaArrayAccessor& readAndGet();
 
+    /**
+     * Copy all elements into a fresh Lua table (1-based) in one std::visit dispatch.
+     *
+     * Prefer this over element-by-element arr[i] access in hot loops: the per-element
+     * path pays one std::visit + one sol::make_object per index, whereas toTable pays
+     * that overhead exactly once regardless of array length.
+     */
+    sol::table toTable(sol::this_state s) const;
+
+    /**
+     * Bulk-write all elements from a 1-based Lua table into the array buffer.
+     *
+     * Symmetric counterpart to toTable: a single std::visit replaces N individual
+     * setElement calls, each of which would dispatch through the variant separately.
+     * Only elements [1..getNElements()] are read from the table.
+     */
+    void fromTable(sol::table t);
+
     /** Register the Lua array-accessor bindings into the given Lua state. */
     static void bind(sol::state& lua);
 

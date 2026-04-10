@@ -68,6 +68,53 @@ namespace ChimeraTK {
 
   /********************************************************************************************************************/
 
+  sol::table LuaArrayAccessor::toTable(sol::this_state s) const {
+    // Single std::visit for the whole array: avoids one dispatch + one sol::make_object per element
+    // compared to calling getElement() in a Lua loop.
+    return std::visit(
+        [&](auto& acc) {
+          using ACC = std::remove_reference_t<decltype(acc)>;
+          using T = typename ACC::value_type;
+          sol::state_view sv(s);
+          const size_t n = acc.getNElements();
+          sol::table t = sv.create_table(static_cast<int>(n), 0);
+          for(size_t i = 0; i < n; ++i) {
+            if constexpr(std::is_same_v<T, ChimeraTK::Boolean>) {
+              t[i + 1] = static_cast<bool>(acc[i]);
+            }
+            else {
+              t[i + 1] = acc[i];
+            }
+          }
+          return t;
+        },
+        _accessor);
+  }
+
+  /********************************************************************************************************************/
+
+  void LuaArrayAccessor::fromTable(sol::table t) {
+    // Single std::visit for the whole array: avoids one dispatch per element
+    // compared to calling setElement() in a Lua loop.
+    std::visit(
+        [&](auto& acc) {
+          using ACC = std::remove_reference_t<decltype(acc)>;
+          using T = typename ACC::value_type;
+          const size_t n = acc.getNElements();
+          for(size_t i = 0; i < n; ++i) {
+            if constexpr(std::is_same_v<T, ChimeraTK::Boolean>) {
+              acc[i] = t.get<bool>(static_cast<int>(i + 1));
+            }
+            else {
+              acc[i] = t.get<T>(static_cast<int>(i + 1));
+            }
+          }
+        },
+        _accessor);
+  }
+
+  /********************************************************************************************************************/
+
   void LuaArrayAccessor::bind(sol::state& lua) {
     lua.new_usertype<LuaArrayAccessor>("ArrayAccessor",
         sol::no_constructor,
@@ -76,6 +123,8 @@ namespace ChimeraTK {
         "readNonBlocking", &LuaArrayAccessor::readNonBlocking,
         "readLatest", &LuaArrayAccessor::readLatest,
         "readAndGet", &LuaArrayAccessor::readAndGet,
+        "toTable", &LuaArrayAccessor::toTable,
+        "fromTable", &LuaArrayAccessor::fromTable,
         "write", &LuaArrayAccessor::write,
         "writeDestructively", &LuaArrayAccessor::writeDestructively,
         "getNElements", &LuaArrayAccessor::getNElements,

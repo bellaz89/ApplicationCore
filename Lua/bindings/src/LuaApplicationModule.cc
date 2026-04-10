@@ -99,6 +99,7 @@ namespace ChimeraTK {
         int funcIdx = lua_gettop(L);
 
         std::vector<char> bytecode;
+        bytecode.reserve(4096);
         lua_dump(
             L,
             [](lua_State* /*L*/, const void* p, size_t sz, void* ud) -> int {
@@ -184,8 +185,9 @@ namespace ChimeraTK {
     fn.push();
     int funcIdx = lua_gettop(L);
 
-    // Dump bytecode
+    // Dump bytecode; reserve upfront to avoid repeated reallocation as chunks arrive.
     _mainLoopBytecode.clear();
+    _mainLoopBytecode.reserve(4096);
     lua_dump(
         L,
         [](lua_State* /*L*/, const void* p, size_t sz, void* ud) -> int {
@@ -277,16 +279,18 @@ namespace ChimeraTK {
     auto result = _mainLoopFn(static_cast<LuaApplicationModule*>(this));
     if(!result.valid()) {
       sol::error err = result;
-      std::string msg = err.what();
-      if(msg.find("ChimeraTK::ThreadInterrupted") != std::string::npos) {
+      // std::string_view into sol::error's internal buffer — zero allocation on the
+      // common termination path (ThreadInterrupted), which is what hits this branch.
+      std::string_view msg = err.what();
+      if(msg.find("ChimeraTK::ThreadInterrupted") != std::string_view::npos) {
         // Normal termination via terminate() -> accessor interrupt()
         return;
       }
       if(Application::getInstance().getLifeCycleState() == LifeCycleState::shutdown &&
-          msg.find("C++ exception") != std::string::npos) {
+          msg.find("C++ exception") != std::string_view::npos) {
         return;
       }
-      throw ChimeraTK::logic_error("Lua mainLoop error in '" + getName() + "': " + msg);
+      throw ChimeraTK::logic_error("Lua mainLoop error in '" + getName() + "': " + std::string(msg));
     }
   }
 

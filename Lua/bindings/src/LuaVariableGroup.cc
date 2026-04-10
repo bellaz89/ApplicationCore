@@ -19,15 +19,25 @@ namespace ChimeraTK {
         sol::no_constructor,
         "getName", &LuaVariableGroup::getName,
         "readAll",
-        [](LuaVariableGroup& self, bool includeReturnChannels) { self.readAll(includeReturnChannels); },
+        [](LuaVariableGroup& self, sol::optional<bool> includeReturnChannels) {
+          self.readAll(includeReturnChannels.value_or(false));
+        },
         "readAllLatest",
-        [](LuaVariableGroup& self, bool includeReturnChannels) { self.readAllLatest(includeReturnChannels); },
+        [](LuaVariableGroup& self, sol::optional<bool> includeReturnChannels) {
+          self.readAllLatest(includeReturnChannels.value_or(false));
+        },
         "readAllNonBlocking",
-        [](LuaVariableGroup& self, bool includeReturnChannels) { self.readAllNonBlocking(includeReturnChannels); },
+        [](LuaVariableGroup& self, sol::optional<bool> includeReturnChannels) {
+          self.readAllNonBlocking(includeReturnChannels.value_or(false));
+        },
         "writeAll",
-        [](LuaVariableGroup& self, bool includeReturnChannels) { self.writeAll(includeReturnChannels); },
+        [](LuaVariableGroup& self, sol::optional<bool> includeReturnChannels) {
+          self.writeAll(includeReturnChannels.value_or(false));
+        },
         "writeAllDestructively",
-        [](LuaVariableGroup& self, bool includeReturnChannels) { self.writeAllDestructively(includeReturnChannels); },
+        [](LuaVariableGroup& self, sol::optional<bool> includeReturnChannels) {
+          self.writeAllDestructively(includeReturnChannels.value_or(false));
+        },
 
         // Scalar accessor factory methods (vg:ScalarPushInput(...))
         "ScalarPushInput",

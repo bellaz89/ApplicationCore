@@ -29,8 +29,8 @@ namespace ChimeraTK {
      * Ownership remains with this LuaOwningObject instance until destruction.
      */
     template<class Child, typename... Args>
-    Child* make_child(Args... args) { // NOLINT(readability-identifier-naming)
-      auto ptr = std::make_unique<Child>(args...);
+    Child* make_child(Args&&... args) { // NOLINT(readability-identifier-naming)
+      auto ptr = std::make_unique<Child>(std::forward<Args>(args)...);
       Child* rv = ptr.get();
 
       _children.emplace_back(std::move(ptr));
