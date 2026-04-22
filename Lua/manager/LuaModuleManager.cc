@@ -57,10 +57,11 @@ namespace ChimeraTK {
 
       std::cout << "LuaModuleManager: Creating module from " << scriptPath << std::endl;
 
-      // Create the LuaApplicationModule directly under Application with the script path.
+      // Create the LuaApplicationModule directly under the Application with the script path.
       // The module will execute the script in its own thread during run().
-      app.findByName<Module>(".").template add<LuaApplicationModule>(
-          module, "Lua module", scriptPath);
+      // Application is a ModuleGroup, so we can pass it directly as the owner.
+      // The constructor automatically registers the module with the application.
+      new LuaApplicationModule(&app, module, "Lua module", scriptPath);
     }
   }
 
