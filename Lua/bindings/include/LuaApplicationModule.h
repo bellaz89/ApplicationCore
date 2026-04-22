@@ -21,28 +21,29 @@ namespace ChimeraTK {
   /**
    * Lua-backed ApplicationModule implementation.
    *
-   * The Lua script constructs this object from the shared loading state and
-   * assigns the module mainLoop function to a property. The binding captures
-   * the function bytecode and migratable state, then reconstructs the module in
-   * its dedicated runtime Lua state when the module thread starts.
+   * Each Lua script executes directly in the module's dedicated Lua state during module startup.
+   * The script is loaded and executed in the module thread (via run()), which simplifies the
+   * architecture by avoiding state migration between threads.
    */
   class LuaApplicationModule : public ApplicationModule, public LuaOwningObject {
    public:
     /**
      * Construct a Lua-backed ApplicationModule.
      *
-     * The Lua script assigns the main loop afterwards via
-     * mod.mainLoop = function(...) ... end.
+     * @param owner The parent ModuleGroup
+     * @param name The module name
+     * @param description The module description
+     * @param scriptPath The path to the Lua script file to execute
      */
     LuaApplicationModule(ModuleGroup* owner, const std::string& name, const std::string& description,
-        const std::unordered_set<std::string>& tags = {});
+        const std::string& scriptPath, const std::unordered_set<std::string>& tags = {});
 
     LuaApplicationModule(LuaApplicationModule&&) = default;
 
-    /** Execute the reconstructed Lua mainLoop in the module thread. */
+    /** Execute the Lua mainLoop function in the module thread. */
     void mainLoop() override;
 
-    /** Create the per-module Lua state and prepare execution. */
+    /** Create the per-module Lua state and execute the Lua script. */
     void run() override;
 
     /** Interrupt the running Lua module and release its runtime state. */
@@ -51,36 +52,15 @@ namespace ChimeraTK {
     /** Register the Lua ApplicationModule bindings into the given Lua state. */
     static void bind(sol::state& lua);
 
-    /** Build a state-migration factory for a Lua value captured during loading. */
-    static std::function<sol::object(sol::state_view)> makeFactory(sol::object val);
-
    private:
-    /** Capture the mainLoop bytecode and all migratable upvalues. */
-    void captureMainLoop(sol::protected_function& fn);
-
-    /** Extract all upvalues from the function at funcIdx on the Lua stack. */
-    static std::vector<std::pair<std::string, std::function<sol::object(sol::state_view)>>> extractUpvalues(
-        lua_State* L, int funcIdx);
-
-    /** Bytecode of the user-supplied mainLoop function captured from the loading state. */
-    std::vector<char> _mainLoopBytecode;
+    /** Path to the Lua script file to execute. */
+    std::string _scriptPath;
 
     /** Per-module runtime Lua state, accessed only from the module thread. */
     std::unique_ptr<sol::state> _moduleState;
 
-    /** mainLoop function rebound into _moduleState. Valid only after run() has been called. */
+    /** mainLoop function extracted from the Lua script execution. Valid only after run() has been called. */
     sol::protected_function _mainLoopFn;
-
-    /**
-     * Storage for all module properties captured in the loading state.
-     *
-     * Maps property names to factory functions which reconstruct the value in a
-     * target runtime VM.
-     */
-    std::unordered_map<std::string, std::function<sol::object(sol::state_view)>> _properties;
-
-    /** Upvalue factories for mainLoop in original upvalue index order. */
-    std::vector<std::pair<std::string, std::function<sol::object(sol::state_view)>>> _mainLoopUpvalues;
 
     /** Mutex protecting _moduleState from concurrent access during shutdown. */
     std::mutex _mutex;

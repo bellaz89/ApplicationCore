@@ -16,9 +16,8 @@ namespace ChimeraTK {
    * Loads and manages Lua-based ApplicationModules declared in the ConfigReader XML file under
    * the \<LuaModules\> section.
    *
-   * The Application keeps one instance and calls createModules() in its constructor. The Lua loading
-   * state (sol::state) is kept alive for the duration of the Application so all registered C++ objects
-   * remain valid.
+   * Each Lua script executes directly in its module's thread, avoiding the complexity of
+   * state migration between threads.
    */
   class LuaModuleManager {
    public:
