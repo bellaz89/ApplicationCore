@@ -6,7 +6,7 @@ local addend   = cfg:get("Upvalue/addend",   10.0)
 local prefix   = cfg:get("Upvalue/prefix",   "v=")
 local enabled  = cfg:get("Upvalue/enabled",  true)
 
-local mod = ApplicationModule(app, "Upvalue", "Upvalue migration test")
+local mod = ApplicationModule("Upvalue", "Upvalue migration test")
 
 local input  = mod:ScalarPushInput(DataType.float32, "input",  "V", "Input")
 local output = mod:ScalarOutput   (DataType.float32, "output", "V", "Output")

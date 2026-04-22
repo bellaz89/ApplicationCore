@@ -1120,7 +1120,7 @@ The module is imported from Python's `sys.path`, so `controller.py` must be impo
 ```lua
 -- controller.lua  (preferred style)
 
-local mod = ApplicationModule(app, "Controller", "Lua PID controller")
+local mod = ApplicationModule("Controller", "Lua PID controller")
 
 -- Declare accessors using method syntax on the module object.
 mod.setpoint = mod:ScalarPollInput(DataType.float32, "setpoint", "degC", "Setpoint")
@@ -1175,7 +1175,7 @@ ac.app.controller = Controller(ac.app, "Controller", "Python PID controller")
 Key differences from Lua:
 - Accessors go in `__init__`, not after the function.
 - `self.gain.get()` is needed because `ScalarPollInput` does not block; calling `readAndGet()` on a poll input would also work.
-- The module is instantiated and attached to `ac.app` at module-import time (equivalent to the Lua `ApplicationModule(app, …)` call).
+- The module is instantiated and attached to `ac.app` at module-import time (equivalent to the Lua `ApplicationModule(…)` call).
 
 ### 10.3 Accessor types in scripts
 
@@ -1472,7 +1472,7 @@ def mainLoop(self):
 Status accessors carry a four-level severity (`OFF`, `OK`, `WARNING`, `FAULT`) and integrate with ApplicationCore's status-propagation infrastructure.
 
 ```lua
-local mod = ApplicationModule(app, "Controller", "PID controller")
+local mod = ApplicationModule("Controller", "PID controller")
 
 -- Output publishes the module's health
 mod.status = mod:StatusOutput("status", "Controller health")

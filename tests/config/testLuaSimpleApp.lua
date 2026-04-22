@@ -1,7 +1,7 @@
 -- testLuaSimpleApp.lua
 -- Simple push-pull module: reads an int32 input, writes float output = input + 0.5
 
-local mod = ApplicationModule(app, "SomeName", "Description")
+local mod = ApplicationModule("SomeName", "Description")
 
 mod.myOutput = mod:ScalarOutput(DataType.float32, "/Var1", "unit", "description")
 mod.myInput  = mod:ScalarPushInput(DataType.int32, "/Var2", "unit", "description")

@@ -1,7 +1,7 @@
 -- testLuaArithmetic.lua
 -- Tests arithmetic operators on scalar accessors.
 
-local mod = ApplicationModule(app, "Arith", "Arithmetic metamethods test")
+local mod = ApplicationModule("Arith", "Arithmetic metamethods test")
 
 mod.a      = mod:ScalarPushInput(DataType.float32, "a",      "V", "Input A")
 mod.b      = mod:ScalarPushInput(DataType.float32, "b",      "V", "Input B")

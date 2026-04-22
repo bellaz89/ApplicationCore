@@ -2,7 +2,7 @@
 -- Tests ArrayPushInput / ArrayOutput view semantics and iteration.
 -- Pattern mirrors testPythonWithArray.py.
 
-local mod = ApplicationModule(app, "SomeName", "Module's description")
+local mod = ApplicationModule("SomeName", "Module's description")
 
 mod.arrayOut1 = mod:ArrayOutput(DataType.int32, "ArrayOut1", "SomeUnit", 10, "my fancy description")
 mod.arrayOut2 = mod:ArrayOutput(DataType.int32, "ArrayOut2", "SomeUnit", 10, "my fancy description")

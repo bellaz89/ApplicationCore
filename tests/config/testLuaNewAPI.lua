@@ -6,7 +6,7 @@ local cfg = appConfig()
 local scale = cfg:get("NewAPI/scale", 2.0)
 local label = cfg:get("NewAPI/label", "newapi")
 
-local mod = ApplicationModule(app, "NewAPI", "New API test")
+local mod = ApplicationModule("NewAPI", "New API test")
 
 local input  = mod:ScalarPushInput(DataType.float32, "input",  "V", "Input")
 local output = mod:ScalarOutput   (DataType.float32, "output", "V", "Output")

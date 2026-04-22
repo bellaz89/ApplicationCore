@@ -44,7 +44,7 @@ Each `<module>` entry causes one Lua script file to be loaded. The `path` value 
 A Lua script **must** create exactly one `ApplicationModule` object and return it. Multiple modules cannot be instantiated from a single script file.
 
 The script executes directly in the module's thread, so there is no bytecode capture or state migration overhead. Scripts work exactly as before:
-1. Call `ApplicationModule(app, "ModuleName", "Description")` to get the module instance
+1. Call `ApplicationModule("ModuleName", "Description")` to get the module instance
 2. Create accessors using `mod:ScalarPushInput()` etc. (at script level)
 3. Define the main loop as `function mod:mainLoop()` 
 4. Return the module with `return mod`
@@ -56,7 +56,7 @@ Accessors are created **at script level** (before `app.initialise()`) and retrie
 ```lua
 -- mymodule.lua
 
-local mod = ApplicationModule(app, "Control", "A simple controller")
+local mod = ApplicationModule("Control", "A simple controller")
 local cfg = appConfig()
 
 -- Accessors and config values assigned as self properties at script level.
@@ -341,7 +341,7 @@ local cfg   = appConfig()
 local scale = cfg:get("MyModule/scale", 1.0)    -- number upvalue
 local label = cfg:get("MyModule/label", "v=")   -- string upvalue
 
-local mod    = ApplicationModule(app, "MyModule", "Demo")
+local mod    = ApplicationModule("MyModule", "Demo")
 local input  = mod:ScalarPushInput(DataType.float32, "input",  "V", "")
 local output = mod:ScalarOutput   (DataType.float32, "output", "V", "")
 

@@ -268,15 +268,15 @@ namespace ChimeraTK {
           return self.getReadAnyGroup();
         });
 
-    // Factory function: ApplicationModule(owner, name, description)
+    // Factory function: ApplicationModule(name, description)
     // This factory function is registered in the module's lua state before script execution.
     // It returns a reference to the C++-created module instance that was injected as a global.
+    // The parent group is implicit - it's already established on the C++ side.
     // 
     // We capture lua_state() at registration time so we can access the global _modSelfRef later.
     lua_State* L = lua.lua_state();
     lua.set_function("ApplicationModule",
-        [L](LuaModuleGroup& owner, const std::string& name, 
-            const std::string& description) -> LuaApplicationModule& {
+        [L](const std::string& name, const std::string& description) -> LuaApplicationModule& {
           // Access the global _modSelfRef from the lua state where this was registered
           sol::state_view lua_view(L);
           sol::object modRef = lua_view.globals()["_modSelfRef"];

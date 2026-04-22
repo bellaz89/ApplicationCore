@@ -1,7 +1,7 @@
 -- testLuaAppConfig.lua
 -- Tests the appConfig() binding.
 
-local mod = ApplicationModule(app, "UserModule", "Config test module")
+local mod = ApplicationModule("UserModule", "Config test module")
 mod.testError = mod:ScalarOutput(DataType.string, "testError", "", "")
 
 function mod:mainLoop()
