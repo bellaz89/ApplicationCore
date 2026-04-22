@@ -3,7 +3,6 @@
 
 #include "LuaStatusAccessor.h"
 
-#include "LuaModuleGroup.h"
 #include "LuaVariableGroup.h"
 
 #include <sol/sol.hpp>

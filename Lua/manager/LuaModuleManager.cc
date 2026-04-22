@@ -7,7 +7,6 @@
 #include "ConfigReader.h"
 #include "LuaApplicationModule.h"
 #include "LuaBindings.h"
-#include "LuaModuleGroup.h"
 
 #include <sol/sol.hpp>
 
@@ -20,7 +19,7 @@ namespace ChimeraTK {
   namespace detail {
 
     struct LuaModuleManagerImpl {
-      std::unique_ptr<LuaModuleGroup> mainGroup;
+      // No intermediate group needed - modules go directly under Application
     };
 
   } // namespace detail
@@ -44,10 +43,7 @@ namespace ChimeraTK {
       return;
     }
     _impl = std::make_unique<detail::LuaModuleManagerImpl>();
-
-    // Create the root module group that holds all Lua modules.
-    _impl->mainGroup =
-        std::make_unique<LuaModuleGroup>(&app, ".", "Root for Lua Modules");
+    // Initialization is now minimal - modules are created directly under Application
   }
 
   /********************************************************************************************************************/
@@ -61,12 +57,10 @@ namespace ChimeraTK {
 
       std::cout << "LuaModuleManager: Creating module from " << scriptPath << std::endl;
 
-      // Create the LuaApplicationModule with the script path.
+      // Create the LuaApplicationModule directly under Application with the script path.
       // The module will execute the script in its own thread during run().
-      auto& luaModule = *_impl->mainGroup->make_child<LuaApplicationModule>(
-          _impl->mainGroup.get(), module, "Lua module", scriptPath);
-
-      // The module is now owned by mainGroup and will be started by the Application.
+      app.findByName<Module>(".").template add<LuaApplicationModule>(
+          module, "Lua module", scriptPath);
     }
   }
 
@@ -76,15 +70,7 @@ namespace ChimeraTK {
     if(!_impl) {
       return;
     }
-
-    // Terminate all Lua ApplicationModule threads that may be running.
-    if(_impl->mainGroup) {
-      for(auto* mod : _impl->mainGroup->getSubmoduleListRecursive()) {
-        mod->terminate();
-      }
-    }
-
-    _impl->mainGroup.reset();
+    // Cleanup of impl struct - modules are managed by Application now
     _impl.reset();
   }
 

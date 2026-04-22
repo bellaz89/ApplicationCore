@@ -7,9 +7,7 @@
 #include "LuaArrayAccessor.h"
 #include "LuaConfigReader.h"
 #include "LuaDataConsistencyGroup.h"
-#include "LuaExtraModules.h"
 #include "LuaLogger.h"
-#include "LuaModuleGroup.h"
 #include "LuaReadAnyGroup.h"
 #include "LuaScalarAccessor.h"
 #include "LuaStatusAccessor.h"
@@ -93,7 +91,6 @@ namespace ChimeraTK {
 
     // ---- Accessor / module bindings ------------------------------------
     LuaTransferElementBase::bind(lua);
-    LuaModuleGroup::bind(lua);
     LuaVariableGroup::bind(lua);
     LuaApplicationModule::bind(lua);
     LuaScalarAccessor::bind(lua);
@@ -104,7 +101,6 @@ namespace ChimeraTK {
     LuaLogger::bind(lua);
     LuaConfigReader::bind(lua);
     LuaStatusAccessor::bind(lua);
-    LuaExtraModules::bind(lua);
   }
 
   /********************************************************************************************************************/

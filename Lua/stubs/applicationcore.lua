@@ -269,16 +269,6 @@ function VariableGroup:writeAll() end
 function VariableGroup:writeAllDestructively() end
 
 -- ============================================================
---  ModuleGroup
--- ============================================================
-
----@class ModuleGroup
-local ModuleGroup = {}
-
----@return string
-function ModuleGroup:getName() end
-
--- ============================================================
 --  ApplicationModule
 -- ============================================================
 
@@ -394,17 +384,6 @@ function StatusAccessor:writeIfDifferent(val) end
 Status = {}
 
 -- ============================================================
---  PriorityMode  (for StatusAggregator)
--- ============================================================
-
----@class PriorityMode
----@field fwok          PriorityMode
----@field fwko          PriorityMode
----@field fw_warn_mixed PriorityMode
----@field ofwk          PriorityMode
-PriorityMode = {}
-
--- ============================================================
 --  Global factory functions
 -- ============================================================
 
@@ -448,19 +427,6 @@ function ConfigReader:getArray(path, default) end
 ---@return string[]
 function ConfigReader:getModules(path) end
 
----Obtain the application configuration reader.
----@return ConfigReader
-function appConfig() end
-
----Create a ModuleGroup owned by a parent group (or app root if no owner given).
----@overload fun(owner: ModuleGroup, name: string, description: string): ModuleGroup
----@overload fun(name: string, description: string): ModuleGroup
----@param owner      ModuleGroup
----@param name        string
----@param description string
----@return ModuleGroup
-function ModuleGroup(owner, name, description) end
-
 ---Create a VariableGroup owned by a parent module or group.
 ---@param owner      ModuleGroup|ApplicationModule|VariableGroup
 ---@param name        string
@@ -483,37 +449,13 @@ function VariableGroup:StatusPollInput(name, description) end
 function VariableGroup:VariableGroup(name, description) end
 
 ---Create an ApplicationModule owned by a ModuleGroup.
----@param owner       ModuleGroup
 ---@param name        string
 ---@param description string
 ---@return ApplicationModule
-function ApplicationModule(owner, name, description) end
+function ApplicationModule(name, description) end
 
--- Extra module constructors
----Create a PeriodicTrigger module.
----@param owner ModuleGroup  @param name string  @param description string  @param defaultPeriod? integer
-function PeriodicTrigger(owner, name, description, defaultPeriod) end
-
----Create a StatusAggregator module.
----@param owner ModuleGroup  @param outputName string  @param description string  @param mode? PriorityMode
-function StatusAggregator(owner, outputName, description, mode) end
-
----Create a MaxMonitor module.
----@param type DataType  @param owner ModuleGroup  @param inputPath string  @param outputPath string  @param parameterPath string  @param description string
-function MaxMonitor(type, owner, inputPath, outputPath, parameterPath, description) end
-
----Create a MinMonitor module.
----@param type DataType  @param owner ModuleGroup  @param inputPath string  @param outputPath string  @param parameterPath string  @param description string
-function MinMonitor(type, owner, inputPath, outputPath, parameterPath, description) end
-
----Create a RangeMonitor module.
----@param type DataType  @param owner ModuleGroup  @param inputPath string  @param outputPath string  @param parameterPath string  @param description string
-function RangeMonitor(type, owner, inputPath, outputPath, parameterPath, description) end
-
----Create an ExactMonitor module.
----@param type DataType  @param owner ModuleGroup  @param inputPath string  @param outputPath string  @param parameterPath string  @param description string
-function ExactMonitor(type, owner, inputPath, outputPath, parameterPath, description) end
-
--- The root module group; set by LuaModuleManager before each script is executed.
----@type ModuleGroup
-app = nil
+-- ============================================================
+--  Lua module execution note
+-- ============================================================
+-- The "app" global is no longer available in Lua modules (LuaModuleGroup was removed).
+-- Lua modules are now created directly under the Application.

@@ -6,7 +6,6 @@
 #include "Application.h"
 #include "LuaArrayAccessor.h"
 #include "LuaBindings.h"
-#include "LuaModuleGroup.h"
 #include "LuaScalarAccessor.h"
 #include "LuaStatusAccessor.h"
 #include "LuaVariableGroup.h"
@@ -53,12 +52,6 @@ namespace ChimeraTK {
         return lua_error(L);
       }
     });
-
-    // Set up the global "app" reference to the parent module group (if it's a LuaModuleGroup)
-    auto* parentLuaGroup = dynamic_cast<LuaModuleGroup*>(getOwner());
-    if(parentLuaGroup) {
-      (*_moduleState)["app"] = std::ref(*parentLuaGroup);
-    }
 
     // Inject this module instance as a static reference so ApplicationModule() factory can return it
     // Scripts that call ApplicationModule(app, name, desc) will get this instance back

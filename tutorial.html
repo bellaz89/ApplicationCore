@@ -1,0 +1,1196 @@
+<h1 id="chimeratk-applicationcore-tutorial">ChimeraTK ApplicationCore — Tutorial</h1>
+<p>This tutorial walks you through everything you need to build a real-time control system application with <strong>ChimeraTK ApplicationCore</strong> — from setting up a fresh CMake project to writing modules, testing them, and adding scripted logic in Lua.</p>
+<hr />
+<h2 id="table-of-contents">Table of Contents</h2>
+<ol type="1">
+<li><a href="#1-what-is-applicationcore">What is ApplicationCore?</a></li>
+<li><a href="#2-project-setup-from-scratch">Project setup from scratch</a></li>
+<li><a href="#3-core-concepts">Core concepts</a></li>
+<li><a href="#4-accessor-types">Accessor types</a></li>
+<li><a href="#5-writing-your-first-module">Writing your first module</a></li>
+<li><a href="#6-structuring-larger-applications">Structuring larger applications</a></li>
+<li><a href="#7-connecting-modules">Connecting modules</a></li>
+<li><a href="#8-the-application-configuration-file">The application configuration file</a> — XML format, C++ API, scripted modules</li>
+<li><a href="#9-testing-with-testfacility">Testing with TestFacility</a></li>
+<li><a href="#10-scripting-modules-lua-and-python">Scripting modules (Lua and Python)</a></li>
+<li><a href="#11-useful-patterns-and-tips">Useful patterns and tips</a></li>
+</ol>
+<hr />
+<h2 id="what-is-applicationcore">1. What is ApplicationCore?</h2>
+<p>ApplicationCore is a C++ framework that lets you build distributed control system applications as a network of communicating, independently-running <strong>modules</strong>. Each module lives in its own thread, declares typed <strong>process variables</strong> (inputs and outputs), and implements a <code>mainLoop()</code>. The framework:</p>
+<ul>
+<li>wires the process variables together automatically based on their paths,</li>
+<li>handles scheduling (a module wakes up only when new data arrives),</li>
+<li>propagates data-validity flags and version numbers transparently,</li>
+<li>publishes all variables to the control system adapter (EPICS, DOOCS, OPC-UA, …) without any adapter-specific code in your modules.</li>
+</ul>
+<p>The result is application logic that is fully decoupled from hardware details and the choice of control system middleware.</p>
+<hr />
+<h2 id="project-setup-from-scratch">2. Project setup from scratch</h2>
+<h3 id="required-dependencies">2.1 Required dependencies</h3>
+<table>
+<thead>
+<tr class="header">
+<th>Package</th>
+<th>Minimum version</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>CMake</td>
+<td>3.16</td>
+<td></td>
+</tr>
+<tr class="even">
+<td>ChimeraTK-ApplicationCore</td>
+<td>any</td>
+<td>the framework itself</td>
+</tr>
+<tr class="odd">
+<td>ChimeraTK-ControlSystemAdapter</td>
+<td>02.11</td>
+<td>control-system back-end interface</td>
+</tr>
+<tr class="even">
+<td>ChimeraTK-DeviceAccess</td>
+<td>03.18</td>
+<td>hardware device interface</td>
+</tr>
+<tr class="odd">
+<td>Boost</td>
+<td>1.71</td>
+<td>filesystem, thread, chrono, …</td>
+</tr>
+<tr class="even">
+<td>libxml++</td>
+<td>3.x or 5.x</td>
+<td>XML config file parsing</td>
+</tr>
+</tbody>
+</table>
+<p>Optional: - <strong>Lua / LuaJIT + sol2</strong> — for Lua scripting modules - <strong>pybind11</strong> — for Python scripting modules</p>
+<h3 id="directory-layout">2.2 Directory layout</h3>
+<pre><code>MyApp/
+├── CMakeLists.txt
+├── include/
+│   ├── MyApp.h          ← Application subclass
+│   └── MyModule.h       ← ApplicationModule subclass(es)
+├── src/
+│   ├── main.cc
+│   ├── MyApp.cc
+│   └── MyModule.cc
+├── MyApp-config.xml     ← runtime configuration (see §8)
+└── tests/
+    ├── CMakeLists.txt
+    └── testMyModule.cc</code></pre>
+<h3 id="cmakelists.txt">2.3 CMakeLists.txt</h3>
+<div class="sourceCode" id="cb2"><pre class="sourceCode cmake"><code class="sourceCode cmake"><span id="cb2-1"><a href="#cb2-1" aria-hidden="true" tabindex="-1"></a><span class="kw">cmake_minimum_required</span>(<span class="ot">VERSION</span> <span class="dt">3.16</span>)</span>
+<span id="cb2-2"><a href="#cb2-2" aria-hidden="true" tabindex="-1"></a><span class="kw">project</span>(MyApp <span class="ot">VERSION</span> <span class="dt">1.0.0</span>)</span>
+<span id="cb2-3"><a href="#cb2-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-4"><a href="#cb2-4" aria-hidden="true" tabindex="-1"></a><span class="kw">set</span>(<span class="dv">CMAKE_CXX_STANDARD</span> 17)</span>
+<span id="cb2-5"><a href="#cb2-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-6"><a href="#cb2-6" aria-hidden="true" tabindex="-1"></a><span class="kw">find_package</span>(ChimeraTK-ApplicationCore <span class="ot">REQUIRED</span>)</span>
+<span id="cb2-7"><a href="#cb2-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-8"><a href="#cb2-8" aria-hidden="true" tabindex="-1"></a><span class="kw">add_executable</span>(MyApp</span>
+<span id="cb2-9"><a href="#cb2-9" aria-hidden="true" tabindex="-1"></a>    src/main.cc</span>
+<span id="cb2-10"><a href="#cb2-10" aria-hidden="true" tabindex="-1"></a>    src/MyApp.cc</span>
+<span id="cb2-11"><a href="#cb2-11" aria-hidden="true" tabindex="-1"></a>    src/MyModule.cc</span>
+<span id="cb2-12"><a href="#cb2-12" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb2-13"><a href="#cb2-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb2-14"><a href="#cb2-14" aria-hidden="true" tabindex="-1"></a><span class="kw">target_include_directories</span>(MyApp <span class="ot">PRIVATE</span> include)</span>
+<span id="cb2-15"><a href="#cb2-15" aria-hidden="true" tabindex="-1"></a><span class="kw">target_link_libraries</span>(MyApp <span class="ot">PRIVATE</span> <span class="bn">ChimeraTK::ApplicationCore</span>)</span></code></pre></div>
+<p>The <code>ChimeraTK::ApplicationCore</code> imported target already carries all transitive dependencies (Boost, libxml++, ControlSystemAdapter, DeviceAccess).</p>
+<h3 id="main.cc">2.4 main.cc</h3>
+<div class="sourceCode" id="cb3"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb3-1"><a href="#cb3-1" aria-hidden="true" tabindex="-1"></a><span class="pp">#include </span><span class="im">&quot;MyApp.h&quot;</span></span>
+<span id="cb3-2"><a href="#cb3-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb3-3"><a href="#cb3-3" aria-hidden="true" tabindex="-1"></a><span class="dt">int</span> main<span class="op">(</span><span class="dt">int</span> argc<span class="op">,</span> <span class="dt">char</span><span class="op">*</span> argv<span class="op">[])</span> <span class="op">{</span></span>
+<span id="cb3-4"><a href="#cb3-4" aria-hidden="true" tabindex="-1"></a>    MyApp app<span class="op">(</span><span class="st">&quot;MyApp&quot;</span><span class="op">);</span>  <span class="co">// name must match the config file prefix</span></span>
+<span id="cb3-5"><a href="#cb3-5" aria-hidden="true" tabindex="-1"></a>    app<span class="op">.</span>initialise<span class="op">();</span></span>
+<span id="cb3-6"><a href="#cb3-6" aria-hidden="true" tabindex="-1"></a>    app<span class="op">.</span>run<span class="op">();</span>           <span class="co">// blocks until application is stopped</span></span>
+<span id="cb3-7"><a href="#cb3-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">return</span> <span class="dv">0</span><span class="op">;</span></span>
+<span id="cb3-8"><a href="#cb3-8" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<hr />
+<h2 id="core-concepts">3. Core concepts</h2>
+<h3 id="class-hierarchy">3.1 Class hierarchy</h3>
+<pre><code>ctk::Application  (extends ModuleGroup — the root of the module tree)
+ └── ctk::ModuleGroup  (container; organises modules into named sub-trees)
+      └── ctk::VariableGroup  (organises variables within a module)
+           └── ctk::ApplicationModule  (runs mainLoop() in its own thread)</code></pre>
+<h3 id="application">3.2 Application</h3>
+<p>Subclass <code>ctk::Application</code>, declare your modules as member variables, and let the framework do the rest:</p>
+<div class="sourceCode" id="cb5"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb5-1"><a href="#cb5-1" aria-hidden="true" tabindex="-1"></a><span class="co">// include/MyApp.h</span></span>
+<span id="cb5-2"><a href="#cb5-2" aria-hidden="true" tabindex="-1"></a><span class="pp">#include </span><span class="im">&lt;ChimeraTK/ApplicationCore/Application.h&gt;</span></span>
+<span id="cb5-3"><a href="#cb5-3" aria-hidden="true" tabindex="-1"></a><span class="pp">#include </span><span class="im">&quot;MyModule.h&quot;</span></span>
+<span id="cb5-4"><a href="#cb5-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-5"><a href="#cb5-5" aria-hidden="true" tabindex="-1"></a><span class="kw">struct</span> MyApp <span class="op">:</span> <span class="kw">public</span> ChimeraTK<span class="op">::</span>Application <span class="op">{</span></span>
+<span id="cb5-6"><a href="#cb5-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">using</span> ChimeraTK<span class="op">::</span>Application<span class="op">::</span>Application<span class="op">;</span></span>
+<span id="cb5-7"><a href="#cb5-7" aria-hidden="true" tabindex="-1"></a>    <span class="op">~</span>MyApp<span class="op">()</span> <span class="kw">override</span> <span class="op">{</span> shutdown<span class="op">();</span> <span class="op">}</span></span>
+<span id="cb5-8"><a href="#cb5-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb5-9"><a href="#cb5-9" aria-hidden="true" tabindex="-1"></a>    MyModule myModule<span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;MyModule&quot;</span><span class="op">,</span> <span class="st">&quot;Does useful work&quot;</span><span class="op">};</span></span>
+<span id="cb5-10"><a href="#cb5-10" aria-hidden="true" tabindex="-1"></a><span class="op">};</span></span></code></pre></div>
+<p>The destructor <strong>must</strong> call <code>shutdown()</code>.</p>
+<h3 id="applicationmodule">3.3 ApplicationModule</h3>
+<p>An <code>ApplicationModule</code> is the basic unit of computation. It runs its <code>mainLoop()</code> in a dedicated thread, and owns <strong>accessors</strong> (typed handles to process variables).</p>
+<div class="sourceCode" id="cb6"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb6-1"><a href="#cb6-1" aria-hidden="true" tabindex="-1"></a><span class="co">// include/MyModule.h</span></span>
+<span id="cb6-2"><a href="#cb6-2" aria-hidden="true" tabindex="-1"></a><span class="pp">#include </span><span class="im">&lt;ChimeraTK/ApplicationCore/ApplicationModule.h&gt;</span></span>
+<span id="cb6-3"><a href="#cb6-3" aria-hidden="true" tabindex="-1"></a><span class="pp">#include </span><span class="im">&lt;ChimeraTK/ApplicationCore/ScalarAccessor.h&gt;</span></span>
+<span id="cb6-4"><a href="#cb6-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-5"><a href="#cb6-5" aria-hidden="true" tabindex="-1"></a><span class="kw">namespace</span> ctk <span class="op">=</span> ChimeraTK<span class="op">;</span></span>
+<span id="cb6-6"><a href="#cb6-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-7"><a href="#cb6-7" aria-hidden="true" tabindex="-1"></a><span class="kw">struct</span> MyModule <span class="op">:</span> <span class="kw">public</span> ctk<span class="op">::</span>ApplicationModule <span class="op">{</span></span>
+<span id="cb6-8"><a href="#cb6-8" aria-hidden="true" tabindex="-1"></a>    <span class="kw">using</span> ctk<span class="op">::</span>ApplicationModule<span class="op">::</span>ApplicationModule<span class="op">;</span></span>
+<span id="cb6-9"><a href="#cb6-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-10"><a href="#cb6-10" aria-hidden="true" tabindex="-1"></a>    ctk<span class="op">::</span>ScalarPushInput<span class="op">&lt;</span><span class="dt">double</span><span class="op">&gt;</span> measurement<span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;measurement&quot;</span><span class="op">,</span> <span class="st">&quot;V&quot;</span><span class="op">,</span> <span class="st">&quot;Voltage reading&quot;</span><span class="op">};</span></span>
+<span id="cb6-11"><a href="#cb6-11" aria-hidden="true" tabindex="-1"></a>    ctk<span class="op">::</span>ScalarOutput<span class="op">&lt;</span><span class="dt">double</span><span class="op">&gt;</span>    result     <span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;result&quot;</span><span class="op">,</span>      <span class="st">&quot;V&quot;</span><span class="op">,</span> <span class="st">&quot;Processed result&quot;</span><span class="op">};</span></span>
+<span id="cb6-12"><a href="#cb6-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb6-13"><a href="#cb6-13" aria-hidden="true" tabindex="-1"></a>    <span class="dt">void</span> mainLoop<span class="op">()</span> <span class="kw">override</span><span class="op">;</span></span>
+<span id="cb6-14"><a href="#cb6-14" aria-hidden="true" tabindex="-1"></a><span class="op">};</span></span></code></pre></div>
+<h3 id="modulegroup-and-variablegroup">3.4 ModuleGroup and VariableGroup</h3>
+<p>Use <code>ModuleGroup</code> to group related modules under a common path prefix:</p>
+<div class="sourceCode" id="cb7"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb7-1"><a href="#cb7-1" aria-hidden="true" tabindex="-1"></a><span class="kw">struct</span> SensorUnit <span class="op">:</span> <span class="kw">public</span> ctk<span class="op">::</span>ModuleGroup <span class="op">{</span></span>
+<span id="cb7-2"><a href="#cb7-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">using</span> ctk<span class="op">::</span>ModuleGroup<span class="op">::</span>ModuleGroup<span class="op">;</span></span>
+<span id="cb7-3"><a href="#cb7-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb7-4"><a href="#cb7-4" aria-hidden="true" tabindex="-1"></a>    TemperatureSensor temperature<span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;Temperature&quot;</span><span class="op">,</span> <span class="st">&quot;description&quot;</span><span class="op">};</span></span>
+<span id="cb7-5"><a href="#cb7-5" aria-hidden="true" tabindex="-1"></a>    PressureSensor    pressure   <span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;Pressure&quot;</span><span class="op">,</span>    <span class="st">&quot;description&quot;</span><span class="op">};</span></span>
+<span id="cb7-6"><a href="#cb7-6" aria-hidden="true" tabindex="-1"></a><span class="op">};</span></span></code></pre></div>
+<p>Use <code>VariableGroup</code> to sub-divide the variable space <em>within</em> a module without spawning a new thread:</p>
+<div class="sourceCode" id="cb8"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb8-1"><a href="#cb8-1" aria-hidden="true" tabindex="-1"></a><span class="kw">struct</span> PIDModule <span class="op">:</span> <span class="kw">public</span> ctk<span class="op">::</span>ApplicationModule <span class="op">{</span></span>
+<span id="cb8-2"><a href="#cb8-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">struct</span> Gains <span class="op">:</span> <span class="kw">public</span> ctk<span class="op">::</span>VariableGroup <span class="op">{</span></span>
+<span id="cb8-3"><a href="#cb8-3" aria-hidden="true" tabindex="-1"></a>        <span class="kw">using</span> ctk<span class="op">::</span>VariableGroup<span class="op">::</span>VariableGroup<span class="op">;</span></span>
+<span id="cb8-4"><a href="#cb8-4" aria-hidden="true" tabindex="-1"></a>        ctk<span class="op">::</span>ScalarPollInput<span class="op">&lt;</span><span class="dt">float</span><span class="op">&gt;</span> kP<span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;kP&quot;</span><span class="op">,</span> <span class="st">&quot;&quot;</span><span class="op">,</span> <span class="st">&quot;Proportional gain&quot;</span><span class="op">};</span></span>
+<span id="cb8-5"><a href="#cb8-5" aria-hidden="true" tabindex="-1"></a>        ctk<span class="op">::</span>ScalarPollInput<span class="op">&lt;</span><span class="dt">float</span><span class="op">&gt;</span> kI<span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;kI&quot;</span><span class="op">,</span> <span class="st">&quot;&quot;</span><span class="op">,</span> <span class="st">&quot;Integral gain&quot;</span><span class="op">};</span></span>
+<span id="cb8-6"><a href="#cb8-6" aria-hidden="true" tabindex="-1"></a>        ctk<span class="op">::</span>ScalarPollInput<span class="op">&lt;</span><span class="dt">float</span><span class="op">&gt;</span> kD<span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;kD&quot;</span><span class="op">,</span> <span class="st">&quot;&quot;</span><span class="op">,</span> <span class="st">&quot;Derivative gain&quot;</span><span class="op">};</span></span>
+<span id="cb8-7"><a href="#cb8-7" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span> gains<span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;Gains&quot;</span><span class="op">,</span> <span class="st">&quot;PID gain parameters&quot;</span><span class="op">};</span></span>
+<span id="cb8-8"><a href="#cb8-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-9"><a href="#cb8-9" aria-hidden="true" tabindex="-1"></a>    ctk<span class="op">::</span>ScalarPushInput<span class="op">&lt;</span><span class="dt">float</span><span class="op">&gt;</span> error<span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;error&quot;</span><span class="op">,</span> <span class="st">&quot;&quot;</span><span class="op">,</span> <span class="st">&quot;Control error&quot;</span><span class="op">};</span></span>
+<span id="cb8-10"><a href="#cb8-10" aria-hidden="true" tabindex="-1"></a>    ctk<span class="op">::</span>ScalarOutput<span class="op">&lt;</span><span class="dt">float</span><span class="op">&gt;</span>    output<span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;output&quot;</span><span class="op">,</span> <span class="st">&quot;&quot;</span><span class="op">,</span> <span class="st">&quot;Control output&quot;</span><span class="op">};</span></span>
+<span id="cb8-11"><a href="#cb8-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb8-12"><a href="#cb8-12" aria-hidden="true" tabindex="-1"></a>    <span class="dt">void</span> mainLoop<span class="op">()</span> <span class="kw">override</span><span class="op">;</span></span>
+<span id="cb8-13"><a href="#cb8-13" aria-hidden="true" tabindex="-1"></a><span class="op">};</span></span></code></pre></div>
+<hr />
+<h2 id="accessor-types">4. Accessor types</h2>
+<p>Accessors are the typed handles that connect module variables to the process variable network.</p>
+<h3 id="scalar-accessors">4.1 Scalar accessors</h3>
+<table>
+<colgroup>
+<col style="width: 18%" />
+<col style="width: 33%" />
+<col style="width: 18%" />
+<col style="width: 30%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Type</th>
+<th>Direction</th>
+<th>Mode</th>
+<th>When use</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>ScalarPushInput&lt;T&gt;</code></td>
+<td>input</td>
+<td>push</td>
+<td>Block until the sender writes a new value</td>
+</tr>
+<tr class="even">
+<td><code>ScalarPollInput&lt;T&gt;</code></td>
+<td>input</td>
+<td>poll</td>
+<td>Read the latest value on demand (no blocking)</td>
+</tr>
+<tr class="odd">
+<td><code>ScalarOutput&lt;T&gt;</code></td>
+<td>output</td>
+<td>push</td>
+<td>Write a value and wake up downstream modules</td>
+</tr>
+<tr class="even">
+<td><code>ScalarPushInputWB&lt;T&gt;</code></td>
+<td>input + write-back</td>
+<td>push</td>
+<td>Like PushInput but can also write back to the sender</td>
+</tr>
+<tr class="odd">
+<td><code>ScalarOutputPushRB&lt;T&gt;</code></td>
+<td>output + readback</td>
+<td>push</td>
+<td>Output with a readback channel</td>
+</tr>
+</tbody>
+</table>
+<p>Constructor signature (all scalar types):</p>
+<div class="sourceCode" id="cb9"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb9-1"><a href="#cb9-1" aria-hidden="true" tabindex="-1"></a>ScalarPushInput<span class="op">&lt;</span><span class="dt">double</span><span class="op">&gt;</span> input<span class="op">{</span></span>
+<span id="cb9-2"><a href="#cb9-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">this</span><span class="op">,</span>          <span class="co">// owner (this module or variable group)</span></span>
+<span id="cb9-3"><a href="#cb9-3" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;myVar&quot;</span><span class="op">,</span>       <span class="co">// variable name / path</span></span>
+<span id="cb9-4"><a href="#cb9-4" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;m/s&quot;</span><span class="op">,</span>         <span class="co">// engineering unit</span></span>
+<span id="cb9-5"><a href="#cb9-5" aria-hidden="true" tabindex="-1"></a>    <span class="st">&quot;description&quot;</span>  <span class="co">// human-readable description</span></span>
+<span id="cb9-6"><a href="#cb9-6" aria-hidden="true" tabindex="-1"></a>    <span class="co">// optional: {&quot;tag1&quot;, &quot;tag2&quot;}   ← tags</span></span>
+<span id="cb9-7"><a href="#cb9-7" aria-hidden="true" tabindex="-1"></a><span class="op">};</span></span></code></pre></div>
+<h3 id="array-accessors">4.2 Array accessors</h3>
+<p>Array accessors add a <code>nElements</code> parameter:</p>
+<div class="sourceCode" id="cb10"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb10-1"><a href="#cb10-1" aria-hidden="true" tabindex="-1"></a>ArrayPushInput<span class="op">&lt;</span><span class="dt">int32_t</span><span class="op">&gt;</span> waveform<span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;waveform&quot;</span><span class="op">,</span> <span class="st">&quot;counts&quot;</span><span class="op">,</span> <span class="dv">1024</span><span class="op">,</span> <span class="st">&quot;ADC waveform&quot;</span><span class="op">};</span></span>
+<span id="cb10-2"><a href="#cb10-2" aria-hidden="true" tabindex="-1"></a>ArrayOutput<span class="op">&lt;</span><span class="dt">float</span><span class="op">&gt;</span>      spectrum<span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;spectrum&quot;</span><span class="op">,</span>  <span class="st">&quot;dB&quot;</span><span class="op">,</span>    <span class="dv">512</span><span class="op">,</span>  <span class="st">&quot;FFT spectrum&quot;</span><span class="op">};</span></span></code></pre></div>
+<table>
+<thead>
+<tr class="header">
+<th>Type</th>
+<th>Direction</th>
+<th>Mode</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>ArrayPushInput&lt;T&gt;</code></td>
+<td>input</td>
+<td>push</td>
+</tr>
+<tr class="even">
+<td><code>ArrayPollInput&lt;T&gt;</code></td>
+<td>input</td>
+<td>poll</td>
+</tr>
+<tr class="odd">
+<td><code>ArrayOutput&lt;T&gt;</code></td>
+<td>output</td>
+<td>push</td>
+</tr>
+</tbody>
+</table>
+<h3 id="void-accessors-triggers">4.3 Void accessors (triggers)</h3>
+<div class="sourceCode" id="cb11"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb11-1"><a href="#cb11-1" aria-hidden="true" tabindex="-1"></a>VoidInput  trigger<span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;trigger&quot;</span><span class="op">,</span> <span class="st">&quot;External trigger&quot;</span><span class="op">};</span></span>
+<span id="cb11-2"><a href="#cb11-2" aria-hidden="true" tabindex="-1"></a>VoidOutput tick   <span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;tick&quot;</span><span class="op">,</span>    <span class="st">&quot;Heartbeat&quot;</span><span class="op">};</span></span></code></pre></div>
+<p>No data is transferred — only the event/trigger itself.</p>
+<h3 id="reading-and-writing">4.4 Reading and writing</h3>
+<div class="sourceCode" id="cb12"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb12-1"><a href="#cb12-1" aria-hidden="true" tabindex="-1"></a><span class="co">// --- Reading ---</span></span>
+<span id="cb12-2"><a href="#cb12-2" aria-hidden="true" tabindex="-1"></a>input<span class="op">.</span>read<span class="op">();</span>                  <span class="co">// blocking: wait for new data</span></span>
+<span id="cb12-3"><a href="#cb12-3" aria-hidden="true" tabindex="-1"></a>input<span class="op">.</span>readNonBlocking<span class="op">();</span>       <span class="co">// returns true if new data was available</span></span>
+<span id="cb12-4"><a href="#cb12-4" aria-hidden="true" tabindex="-1"></a>input<span class="op">.</span>readLatest<span class="op">();</span>            <span class="co">// discard older values, get the latest</span></span>
+<span id="cb12-5"><a href="#cb12-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-6"><a href="#cb12-6" aria-hidden="true" tabindex="-1"></a><span class="dt">double</span> val <span class="op">=</span> <span class="dt">double</span><span class="op">(</span>input<span class="op">);</span>    <span class="co">// cast to extract the value</span></span>
+<span id="cb12-7"><a href="#cb12-7" aria-hidden="true" tabindex="-1"></a><span class="bu">std::</span>vector<span class="op">&lt;</span><span class="dt">int32_t</span><span class="op">&gt;</span> v <span class="op">=</span> <span class="bu">std::</span>vector<span class="op">&lt;</span><span class="dt">int32_t</span><span class="op">&gt;(</span>arrayInput<span class="op">);</span></span>
+<span id="cb12-8"><a href="#cb12-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb12-9"><a href="#cb12-9" aria-hidden="true" tabindex="-1"></a><span class="co">// --- Writing ---</span></span>
+<span id="cb12-10"><a href="#cb12-10" aria-hidden="true" tabindex="-1"></a>output <span class="op">=</span> <span class="fl">3.14</span><span class="op">;</span>                 <span class="co">// set value (does not publish yet)</span></span>
+<span id="cb12-11"><a href="#cb12-11" aria-hidden="true" tabindex="-1"></a>output<span class="op">.</span>write<span class="op">();</span>                <span class="co">// publish to subscribers</span></span>
+<span id="cb12-12"><a href="#cb12-12" aria-hidden="true" tabindex="-1"></a>output<span class="op">.</span>setAndWrite<span class="op">(</span><span class="fl">3.14</span><span class="op">);</span>      <span class="co">// set + publish in one call</span></span>
+<span id="cb12-13"><a href="#cb12-13" aria-hidden="true" tabindex="-1"></a>output<span class="op">.</span>writeIfDifferent<span class="op">(</span>val<span class="op">);</span>  <span class="co">// publish only if value changed</span></span>
+<span id="cb12-14"><a href="#cb12-14" aria-hidden="true" tabindex="-1"></a>output<span class="op">.</span>writeDestructively<span class="op">();</span>   <span class="co">// optimised write (value may be moved)</span></span></code></pre></div>
+<h3 id="bulk-read-write">4.5 Bulk read / write</h3>
+<p>When a module has several inputs that should all be read before processing:</p>
+<div class="sourceCode" id="cb13"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb13-1"><a href="#cb13-1" aria-hidden="true" tabindex="-1"></a><span class="dt">void</span> mainLoop<span class="op">()</span> <span class="kw">override</span> <span class="op">{</span></span>
+<span id="cb13-2"><a href="#cb13-2" aria-hidden="true" tabindex="-1"></a>    writeAll<span class="op">();</span>   <span class="co">// write all outputs (send initial values)</span></span>
+<span id="cb13-3"><a href="#cb13-3" aria-hidden="true" tabindex="-1"></a>    <span class="cf">while</span> <span class="op">(</span><span class="kw">true</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb13-4"><a href="#cb13-4" aria-hidden="true" tabindex="-1"></a>        readAll<span class="op">();</span>    <span class="co">// block until ALL push inputs have new data</span></span>
+<span id="cb13-5"><a href="#cb13-5" aria-hidden="true" tabindex="-1"></a>        <span class="co">// … compute …</span></span>
+<span id="cb13-6"><a href="#cb13-6" aria-hidden="true" tabindex="-1"></a>        writeAll<span class="op">();</span></span>
+<span id="cb13-7"><a href="#cb13-7" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb13-8"><a href="#cb13-8" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<p><code>readAll()</code> blocks until every <code>ScalarPushInput</code> and <code>ArrayPushInput</code> in the module has received at least one update.</p>
+<h3 id="readanygroup-wake-on-any-input">4.6 ReadAnyGroup — wake on any input</h3>
+<div class="sourceCode" id="cb14"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb14-1"><a href="#cb14-1" aria-hidden="true" tabindex="-1"></a><span class="dt">void</span> mainLoop<span class="op">()</span> <span class="kw">override</span> <span class="op">{</span></span>
+<span id="cb14-2"><a href="#cb14-2" aria-hidden="true" tabindex="-1"></a>    ctk<span class="op">::</span>ReadAnyGroup group<span class="op">{</span>input1<span class="op">,</span> input2<span class="op">,</span> input3<span class="op">};</span></span>
+<span id="cb14-3"><a href="#cb14-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb14-4"><a href="#cb14-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">while</span> <span class="op">(</span><span class="kw">true</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb14-5"><a href="#cb14-5" aria-hidden="true" tabindex="-1"></a>        <span class="kw">auto</span> notification <span class="op">=</span> group<span class="op">.</span>readAny<span class="op">();</span>  <span class="co">// wakes on ANY input</span></span>
+<span id="cb14-6"><a href="#cb14-6" aria-hidden="true" tabindex="-1"></a>        <span class="co">// all accessors in the group have their latest value</span></span>
+<span id="cb14-7"><a href="#cb14-7" aria-hidden="true" tabindex="-1"></a>        <span class="co">// notification.getId() tells which accessor triggered the wake-up</span></span>
+<span id="cb14-8"><a href="#cb14-8" aria-hidden="true" tabindex="-1"></a>        output<span class="op">.</span>setAndWrite<span class="op">(</span><span class="dt">double</span><span class="op">(</span>input1<span class="op">)</span> <span class="op">+</span> <span class="dt">double</span><span class="op">(</span>input2<span class="op">));</span></span>
+<span id="cb14-9"><a href="#cb14-9" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb14-10"><a href="#cb14-10" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<h3 id="interrupting-a-blocked-read">4.7 Interrupting a blocked read</h3>
+<p><code>ReadAnyGroup::interrupt()</code> (and the same method on individual accessors) unblocks any thread currently waiting in <code>read()</code> or <code>readAny()</code> by injecting a <code>boost::thread_interrupted</code> exception into the transfer queue.</p>
+<p>The framework calls this automatically during shutdown — your <code>mainLoop()</code> does not need to handle it. You only need <code>interrupt()</code> yourself in advanced patterns where one thread must forcibly wake another, for example a watchdog that aborts a stalled module:</p>
+<div class="sourceCode" id="cb15"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb15-1"><a href="#cb15-1" aria-hidden="true" tabindex="-1"></a><span class="co">// From a watchdog thread or another module:</span></span>
+<span id="cb15-2"><a href="#cb15-2" aria-hidden="true" tabindex="-1"></a>group<span class="op">.</span>interrupt<span class="op">();</span>   <span class="co">// unblocks the thread blocked in group.readAny()</span></span></code></pre></div>
+<p>The interrupted thread receives <code>boost::thread_interrupted</code>. If you let it propagate, ApplicationCore treats it as a clean shutdown signal. If you catch it, always re-throw after any clean-up so the framework can still terminate the thread correctly:</p>
+<div class="sourceCode" id="cb16"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb16-1"><a href="#cb16-1" aria-hidden="true" tabindex="-1"></a><span class="cf">try</span> <span class="op">{</span></span>
+<span id="cb16-2"><a href="#cb16-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">auto</span> id <span class="op">=</span> group<span class="op">.</span>readAny<span class="op">();</span></span>
+<span id="cb16-3"><a href="#cb16-3" aria-hidden="true" tabindex="-1"></a>    <span class="co">// normal processing …</span></span>
+<span id="cb16-4"><a href="#cb16-4" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span>
+<span id="cb16-5"><a href="#cb16-5" aria-hidden="true" tabindex="-1"></a><span class="cf">catch</span><span class="op">(</span><span class="at">const</span> <span class="ex">boost::</span>thread_interrupted<span class="op">&amp;)</span> <span class="op">{</span></span>
+<span id="cb16-6"><a href="#cb16-6" aria-hidden="true" tabindex="-1"></a>    <span class="co">// optional clean-up …</span></span>
+<span id="cb16-7"><a href="#cb16-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">throw</span><span class="op">;</span>   <span class="co">// always re-throw so the framework can shut down cleanly</span></span>
+<span id="cb16-8"><a href="#cb16-8" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<hr />
+<h2 id="writing-your-first-module">5. Writing your first module</h2>
+<h3 id="a-minimal-controller">5.1 A minimal controller</h3>
+<div class="sourceCode" id="cb17"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb17-1"><a href="#cb17-1" aria-hidden="true" tabindex="-1"></a><span class="co">// include/Controller.h</span></span>
+<span id="cb17-2"><a href="#cb17-2" aria-hidden="true" tabindex="-1"></a><span class="pp">#pragma once</span></span>
+<span id="cb17-3"><a href="#cb17-3" aria-hidden="true" tabindex="-1"></a><span class="pp">#include </span><span class="im">&lt;ChimeraTK/ApplicationCore/ApplicationModule.h&gt;</span></span>
+<span id="cb17-4"><a href="#cb17-4" aria-hidden="true" tabindex="-1"></a><span class="pp">#include </span><span class="im">&lt;ChimeraTK/ApplicationCore/ScalarAccessor.h&gt;</span></span>
+<span id="cb17-5"><a href="#cb17-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb17-6"><a href="#cb17-6" aria-hidden="true" tabindex="-1"></a><span class="kw">namespace</span> ctk <span class="op">=</span> ChimeraTK<span class="op">;</span></span>
+<span id="cb17-7"><a href="#cb17-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb17-8"><a href="#cb17-8" aria-hidden="true" tabindex="-1"></a><span class="kw">struct</span> Controller <span class="op">:</span> <span class="kw">public</span> ctk<span class="op">::</span>ApplicationModule <span class="op">{</span></span>
+<span id="cb17-9"><a href="#cb17-9" aria-hidden="true" tabindex="-1"></a>    <span class="kw">using</span> ctk<span class="op">::</span>ApplicationModule<span class="op">::</span>ApplicationModule<span class="op">;</span></span>
+<span id="cb17-10"><a href="#cb17-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb17-11"><a href="#cb17-11" aria-hidden="true" tabindex="-1"></a>    ctk<span class="op">::</span>ScalarPollInput<span class="op">&lt;</span><span class="dt">float</span><span class="op">&gt;</span> setpoint <span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;setpoint&quot;</span><span class="op">,</span>  <span class="st">&quot;degC&quot;</span><span class="op">,</span> <span class="st">&quot;Temperature setpoint&quot;</span><span class="op">};</span></span>
+<span id="cb17-12"><a href="#cb17-12" aria-hidden="true" tabindex="-1"></a>    ctk<span class="op">::</span>ScalarPushInput<span class="op">&lt;</span><span class="dt">float</span><span class="op">&gt;</span> readback <span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;readback&quot;</span><span class="op">,</span>  <span class="st">&quot;degC&quot;</span><span class="op">,</span> <span class="st">&quot;Actual temperature&quot;</span><span class="op">};</span></span>
+<span id="cb17-13"><a href="#cb17-13" aria-hidden="true" tabindex="-1"></a>    ctk<span class="op">::</span>ScalarOutput<span class="op">&lt;</span><span class="dt">float</span><span class="op">&gt;</span>    current  <span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;current&quot;</span><span class="op">,</span>   <span class="st">&quot;mA&quot;</span><span class="op">,</span>   <span class="st">&quot;Heater current&quot;</span><span class="op">};</span></span>
+<span id="cb17-14"><a href="#cb17-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb17-15"><a href="#cb17-15" aria-hidden="true" tabindex="-1"></a>    <span class="dt">void</span> mainLoop<span class="op">()</span> <span class="kw">override</span><span class="op">;</span></span>
+<span id="cb17-16"><a href="#cb17-16" aria-hidden="true" tabindex="-1"></a><span class="op">};</span></span></code></pre></div>
+<div class="sourceCode" id="cb18"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb18-1"><a href="#cb18-1" aria-hidden="true" tabindex="-1"></a><span class="co">// src/Controller.cc</span></span>
+<span id="cb18-2"><a href="#cb18-2" aria-hidden="true" tabindex="-1"></a><span class="pp">#include </span><span class="im">&quot;Controller.h&quot;</span></span>
+<span id="cb18-3"><a href="#cb18-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-4"><a href="#cb18-4" aria-hidden="true" tabindex="-1"></a><span class="dt">void</span> Controller<span class="op">::</span>mainLoop<span class="op">()</span> <span class="op">{</span></span>
+<span id="cb18-5"><a href="#cb18-5" aria-hidden="true" tabindex="-1"></a>    <span class="at">const</span> <span class="dt">float</span> gain <span class="op">=</span> <span class="fl">100.0</span><span class="bu">f</span><span class="op">;</span></span>
+<span id="cb18-6"><a href="#cb18-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-7"><a href="#cb18-7" aria-hidden="true" tabindex="-1"></a>    <span class="cf">while</span> <span class="op">(</span><span class="kw">true</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb18-8"><a href="#cb18-8" aria-hidden="true" tabindex="-1"></a>        readback<span class="op">.</span>read<span class="op">();</span>   <span class="co">// block until a new temperature arrives</span></span>
+<span id="cb18-9"><a href="#cb18-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb18-10"><a href="#cb18-10" aria-hidden="true" tabindex="-1"></a>        setpoint<span class="op">.</span>read<span class="op">();</span>   <span class="co">// poll: read the latest setpoint (never blocks)</span></span>
+<span id="cb18-11"><a href="#cb18-11" aria-hidden="true" tabindex="-1"></a>        current <span class="op">=</span> gain <span class="op">*</span> <span class="op">(</span>setpoint <span class="op">-</span> readback<span class="op">);</span></span>
+<span id="cb18-12"><a href="#cb18-12" aria-hidden="true" tabindex="-1"></a>        current<span class="op">.</span>write<span class="op">();</span></span>
+<span id="cb18-13"><a href="#cb18-13" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb18-14"><a href="#cb18-14" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<h3 id="wiring-it-into-the-application">5.2 Wiring it into the application</h3>
+<div class="sourceCode" id="cb19"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb19-1"><a href="#cb19-1" aria-hidden="true" tabindex="-1"></a><span class="co">// include/MyApp.h</span></span>
+<span id="cb19-2"><a href="#cb19-2" aria-hidden="true" tabindex="-1"></a><span class="pp">#include </span><span class="im">&lt;ChimeraTK/ApplicationCore/Application.h&gt;</span></span>
+<span id="cb19-3"><a href="#cb19-3" aria-hidden="true" tabindex="-1"></a><span class="pp">#include </span><span class="im">&quot;Controller.h&quot;</span></span>
+<span id="cb19-4"><a href="#cb19-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-5"><a href="#cb19-5" aria-hidden="true" tabindex="-1"></a><span class="kw">struct</span> MyApp <span class="op">:</span> <span class="kw">public</span> ChimeraTK<span class="op">::</span>Application <span class="op">{</span></span>
+<span id="cb19-6"><a href="#cb19-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">using</span> ChimeraTK<span class="op">::</span>Application<span class="op">::</span>Application<span class="op">;</span></span>
+<span id="cb19-7"><a href="#cb19-7" aria-hidden="true" tabindex="-1"></a>    <span class="op">~</span>MyApp<span class="op">()</span> <span class="kw">override</span> <span class="op">{</span> shutdown<span class="op">();</span> <span class="op">}</span></span>
+<span id="cb19-8"><a href="#cb19-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb19-9"><a href="#cb19-9" aria-hidden="true" tabindex="-1"></a>    Controller controller<span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;Controller&quot;</span><span class="op">,</span> <span class="st">&quot;Temperature controller&quot;</span><span class="op">};</span></span>
+<span id="cb19-10"><a href="#cb19-10" aria-hidden="true" tabindex="-1"></a><span class="op">};</span></span></code></pre></div>
+<p>The process variable <code>/Controller/setpoint</code> and <code>/Controller/readback</code> are now automatically connected to the control system adapter and to any other module that uses the same path.</p>
+<hr />
+<h2 id="structuring-larger-applications">6. Structuring larger applications</h2>
+<h3 id="nesting-modulegroups">6.1 Nesting ModuleGroups</h3>
+<div class="sourceCode" id="cb20"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb20-1"><a href="#cb20-1" aria-hidden="true" tabindex="-1"></a><span class="kw">struct</span> MyApp <span class="op">:</span> <span class="kw">public</span> ctk<span class="op">::</span>Application <span class="op">{</span></span>
+<span id="cb20-2"><a href="#cb20-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">using</span> ctk<span class="op">::</span>Application<span class="op">::</span>Application<span class="op">;</span></span>
+<span id="cb20-3"><a href="#cb20-3" aria-hidden="true" tabindex="-1"></a>    <span class="op">~</span>MyApp<span class="op">()</span> <span class="kw">override</span> <span class="op">{</span> shutdown<span class="op">();</span> <span class="op">}</span></span>
+<span id="cb20-4"><a href="#cb20-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb20-5"><a href="#cb20-5" aria-hidden="true" tabindex="-1"></a>    <span class="kw">struct</span> ControlUnit <span class="op">:</span> <span class="kw">public</span> ctk<span class="op">::</span>ModuleGroup <span class="op">{</span></span>
+<span id="cb20-6"><a href="#cb20-6" aria-hidden="true" tabindex="-1"></a>        <span class="kw">using</span> ctk<span class="op">::</span>ModuleGroup<span class="op">::</span>ModuleGroup<span class="op">;</span></span>
+<span id="cb20-7"><a href="#cb20-7" aria-hidden="true" tabindex="-1"></a>        Controller     controller    <span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;Controller&quot;</span><span class="op">,</span>    <span class="st">&quot;PID controller&quot;</span><span class="op">};</span></span>
+<span id="cb20-8"><a href="#cb20-8" aria-hidden="true" tabindex="-1"></a>        SafetyMonitor  safety        <span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;SafetyMonitor&quot;</span><span class="op">,</span> <span class="st">&quot;Over-temperature guard&quot;</span><span class="op">};</span></span>
+<span id="cb20-9"><a href="#cb20-9" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span> controlUnit<span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;ControlUnit&quot;</span><span class="op">,</span> <span class="st">&quot;Main control group&quot;</span><span class="op">};</span></span>
+<span id="cb20-10"><a href="#cb20-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb20-11"><a href="#cb20-11" aria-hidden="true" tabindex="-1"></a>    DataLogger dataLogger<span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;DataLogger&quot;</span><span class="op">,</span> <span class="st">&quot;Logs data to file&quot;</span><span class="op">};</span></span>
+<span id="cb20-12"><a href="#cb20-12" aria-hidden="true" tabindex="-1"></a><span class="op">};</span></span></code></pre></div>
+<p>The resulting variable paths are <code>/ControlUnit/Controller/…</code>, <code>/ControlUnit/SafetyMonitor/…</code>, and <code>/DataLogger/…</code>.</p>
+<h3 id="variablegroups-inside-a-module">6.2 VariableGroups inside a module</h3>
+<div class="sourceCode" id="cb21"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb21-1"><a href="#cb21-1" aria-hidden="true" tabindex="-1"></a><span class="kw">struct</span> AdvancedModule <span class="op">:</span> <span class="kw">public</span> ctk<span class="op">::</span>ApplicationModule <span class="op">{</span></span>
+<span id="cb21-2"><a href="#cb21-2" aria-hidden="true" tabindex="-1"></a>    <span class="kw">struct</span> Status <span class="op">:</span> <span class="kw">public</span> ctk<span class="op">::</span>VariableGroup <span class="op">{</span></span>
+<span id="cb21-3"><a href="#cb21-3" aria-hidden="true" tabindex="-1"></a>        <span class="kw">using</span> ctk<span class="op">::</span>VariableGroup<span class="op">::</span>VariableGroup<span class="op">;</span></span>
+<span id="cb21-4"><a href="#cb21-4" aria-hidden="true" tabindex="-1"></a>        ctk<span class="op">::</span>ScalarOutput<span class="op">&lt;</span><span class="dt">int32_t</span><span class="op">&gt;</span> errorCode <span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;errorCode&quot;</span><span class="op">,</span> <span class="st">&quot;&quot;</span><span class="op">,</span>   <span class="st">&quot;Last error&quot;</span><span class="op">};</span></span>
+<span id="cb21-5"><a href="#cb21-5" aria-hidden="true" tabindex="-1"></a>        ctk<span class="op">::</span>ScalarOutput<span class="op">&lt;</span><span class="dt">bool</span><span class="op">&gt;</span>    running   <span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;running&quot;</span><span class="op">,</span>   <span class="st">&quot;&quot;</span><span class="op">,</span>   <span class="st">&quot;Is running&quot;</span><span class="op">};</span></span>
+<span id="cb21-6"><a href="#cb21-6" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span> status<span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;Status&quot;</span><span class="op">,</span> <span class="st">&quot;Module status&quot;</span><span class="op">};</span></span>
+<span id="cb21-7"><a href="#cb21-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb21-8"><a href="#cb21-8" aria-hidden="true" tabindex="-1"></a>    ctk<span class="op">::</span>ScalarPushInput<span class="op">&lt;</span><span class="dt">double</span><span class="op">&gt;</span> input <span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;input&quot;</span><span class="op">,</span>  <span class="st">&quot;V&quot;</span><span class="op">,</span> <span class="st">&quot;Raw signal&quot;</span><span class="op">};</span></span>
+<span id="cb21-9"><a href="#cb21-9" aria-hidden="true" tabindex="-1"></a>    ctk<span class="op">::</span>ScalarOutput<span class="op">&lt;</span><span class="dt">double</span><span class="op">&gt;</span>    output<span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;output&quot;</span><span class="op">,</span> <span class="st">&quot;V&quot;</span><span class="op">,</span> <span class="st">&quot;Processed signal&quot;</span><span class="op">};</span></span>
+<span id="cb21-10"><a href="#cb21-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb21-11"><a href="#cb21-11" aria-hidden="true" tabindex="-1"></a>    <span class="dt">void</span> mainLoop<span class="op">()</span> <span class="kw">override</span><span class="op">;</span></span>
+<span id="cb21-12"><a href="#cb21-12" aria-hidden="true" tabindex="-1"></a><span class="op">};</span></span></code></pre></div>
+<p>Variable paths: <code>/&lt;module&gt;/Status/errorCode</code>, <code>/&lt;module&gt;/Status/running</code>, <code>/&lt;module&gt;/input</code>, …</p>
+<hr />
+<h2 id="connecting-modules">7. Connecting modules</h2>
+<p>Process variables connect implicitly by <strong>path</strong>. Two accessors that share the same absolute path form a producer–consumer pair; the framework inserts fan-outs automatically when one producer has multiple consumers.</p>
+<h3 id="absolute-paths">7.1 Absolute paths</h3>
+<div class="sourceCode" id="cb22"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb22-1"><a href="#cb22-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Producer (in ModuleA):</span></span>
+<span id="cb22-2"><a href="#cb22-2" aria-hidden="true" tabindex="-1"></a>ctk<span class="op">::</span>ScalarOutput<span class="op">&lt;</span><span class="dt">float</span><span class="op">&gt;</span> out<span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;/Shared/temperature&quot;</span><span class="op">,</span> <span class="st">&quot;degC&quot;</span><span class="op">,</span> <span class="st">&quot;desc&quot;</span><span class="op">};</span></span>
+<span id="cb22-3"><a href="#cb22-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb22-4"><a href="#cb22-4" aria-hidden="true" tabindex="-1"></a><span class="co">// Consumer (in ModuleB):</span></span>
+<span id="cb22-5"><a href="#cb22-5" aria-hidden="true" tabindex="-1"></a>ctk<span class="op">::</span>ScalarPushInput<span class="op">&lt;</span><span class="dt">float</span><span class="op">&gt;</span> temp<span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;/Shared/temperature&quot;</span><span class="op">,</span> <span class="st">&quot;degC&quot;</span><span class="op">,</span> <span class="st">&quot;desc&quot;</span><span class="op">};</span></span></code></pre></div>
+<p>Both refer to the same process variable, regardless of where in the module hierarchy they live.</p>
+<h3 id="relative-paths">7.2 Relative paths</h3>
+<p>Paths that do not start with <code>/</code> are resolved relative to the module’s position in the hierarchy. Use <code>..</code> to go up one level:</p>
+<div class="sourceCode" id="cb23"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb23-1"><a href="#cb23-1" aria-hidden="true" tabindex="-1"></a><span class="co">// Inside ControlUnit/SafetyMonitor, read from ControlUnit/Controller/current:</span></span>
+<span id="cb23-2"><a href="#cb23-2" aria-hidden="true" tabindex="-1"></a>ctk<span class="op">::</span>ScalarPushInput<span class="op">&lt;</span><span class="dt">float</span><span class="op">&gt;</span> current<span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;../Controller/current&quot;</span><span class="op">,</span> <span class="st">&quot;mA&quot;</span><span class="op">,</span> <span class="st">&quot;desc&quot;</span><span class="op">};</span></span></code></pre></div>
+<h3 id="fan-out-one-producer-many-consumers">7.3 Fan-out (one producer, many consumers)</h3>
+<p>No special code is needed. If two modules both declare a <code>ScalarPushInput</code> at the same path, the framework creates an internal fan-out so both modules receive every update independently.</p>
+<h3 id="periodictrigger">7.4 PeriodicTrigger</h3>
+<p>For modules that must run at a fixed rate rather than on data events:</p>
+<div class="sourceCode" id="cb24"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb24-1"><a href="#cb24-1" aria-hidden="true" tabindex="-1"></a><span class="pp">#include </span><span class="im">&lt;ChimeraTK/ApplicationCore/PeriodicTrigger.h&gt;</span></span>
+<span id="cb24-2"><a href="#cb24-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb24-3"><a href="#cb24-3" aria-hidden="true" tabindex="-1"></a><span class="kw">struct</span> MyApp <span class="op">:</span> <span class="kw">public</span> ctk<span class="op">::</span>Application <span class="op">{</span></span>
+<span id="cb24-4"><a href="#cb24-4" aria-hidden="true" tabindex="-1"></a>    ctk<span class="op">::</span>PeriodicTrigger timer<span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;Timer&quot;</span><span class="op">,</span> <span class="st">&quot;10 Hz clock&quot;</span><span class="op">,</span> <span class="dv">100</span> <span class="co">/*ms*/</span><span class="op">};</span></span>
+<span id="cb24-5"><a href="#cb24-5" aria-hidden="true" tabindex="-1"></a>    MyModule myModule<span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;MyModule&quot;</span><span class="op">,</span> <span class="st">&quot;desc&quot;</span><span class="op">};</span></span>
+<span id="cb24-6"><a href="#cb24-6" aria-hidden="true" tabindex="-1"></a><span class="op">};</span></span>
+<span id="cb24-7"><a href="#cb24-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb24-8"><a href="#cb24-8" aria-hidden="true" tabindex="-1"></a><span class="co">// In MyModule:</span></span>
+<span id="cb24-9"><a href="#cb24-9" aria-hidden="true" tabindex="-1"></a>ctk<span class="op">::</span>VoidInput tick<span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;/Timer/tick&quot;</span><span class="op">,</span> <span class="st">&quot;Periodic trigger&quot;</span><span class="op">};</span></span>
+<span id="cb24-10"><a href="#cb24-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb24-11"><a href="#cb24-11" aria-hidden="true" tabindex="-1"></a><span class="dt">void</span> MyModule<span class="op">::</span>mainLoop<span class="op">()</span> <span class="op">{</span></span>
+<span id="cb24-12"><a href="#cb24-12" aria-hidden="true" tabindex="-1"></a>    <span class="cf">while</span> <span class="op">(</span><span class="kw">true</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb24-13"><a href="#cb24-13" aria-hidden="true" tabindex="-1"></a>        tick<span class="op">.</span>read<span class="op">();</span>   <span class="co">// wakes every 100 ms</span></span>
+<span id="cb24-14"><a href="#cb24-14" aria-hidden="true" tabindex="-1"></a>        doWork<span class="op">();</span></span>
+<span id="cb24-15"><a href="#cb24-15" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb24-16"><a href="#cb24-16" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<hr />
+<h2 id="the-application-configuration-file">8. The application configuration file</h2>
+<p>The configuration file is named <code>&lt;AppName&gt;-config.xml</code> and must reside in the working directory from which the application is launched. It is loaded automatically at startup.</p>
+<pre><code>MyApp-config.xml   ←  loaded when Application(&quot;MyApp&quot;) is constructed</code></pre>
+<h3 id="xml-structure">8.1 XML structure</h3>
+<p>The document element must be <code>&lt;configuration&gt;</code>:</p>
+<div class="sourceCode" id="cb26"><pre class="sourceCode xml"><code class="sourceCode xml"><span id="cb26-1"><a href="#cb26-1" aria-hidden="true" tabindex="-1"></a>&lt;<span class="kw">configuration</span>&gt;</span>
+<span id="cb26-2"><a href="#cb26-2" aria-hidden="true" tabindex="-1"></a>  <span class="co">&lt;!-- variables and modules go here --&gt;</span></span>
+<span id="cb26-3"><a href="#cb26-3" aria-hidden="true" tabindex="-1"></a>&lt;/<span class="kw">configuration</span>&gt;</span></code></pre></div>
+<h4 id="scalar-variables">Scalar variables</h4>
+<div class="sourceCode" id="cb27"><pre class="sourceCode xml"><code class="sourceCode xml"><span id="cb27-1"><a href="#cb27-1" aria-hidden="true" tabindex="-1"></a>&lt;<span class="kw">variable</span><span class="ot"> name=</span><span class="st">&quot;myValue&quot;</span><span class="ot"> type=</span><span class="st">&quot;int32&quot;</span><span class="ot"> value=</span><span class="st">&quot;42&quot;</span> /&gt;</span></code></pre></div>
+<table>
+<thead>
+<tr class="header">
+<th>Attribute</th>
+<th>Required</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>name</code></td>
+<td>yes</td>
+<td>Variable name (path component)</td>
+</tr>
+<tr class="even">
+<td><code>type</code></td>
+<td>yes</td>
+<td>Data type (see table below)</td>
+</tr>
+<tr class="odd">
+<td><code>value</code></td>
+<td>yes</td>
+<td>The scalar value as a string</td>
+</tr>
+</tbody>
+</table>
+<h4 id="supported-types">Supported types</h4>
+<table>
+<thead>
+<tr class="header">
+<th>XML <code>type</code></th>
+<th>C++ type</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>int8</code></td>
+<td><code>int8_t</code></td>
+<td></td>
+</tr>
+<tr class="even">
+<td><code>uint8</code></td>
+<td><code>uint8_t</code></td>
+<td></td>
+</tr>
+<tr class="odd">
+<td><code>int16</code></td>
+<td><code>int16_t</code></td>
+<td></td>
+</tr>
+<tr class="even">
+<td><code>uint16</code></td>
+<td><code>uint16_t</code></td>
+<td></td>
+</tr>
+<tr class="odd">
+<td><code>int32</code></td>
+<td><code>int32_t</code></td>
+<td></td>
+</tr>
+<tr class="even">
+<td><code>uint32</code></td>
+<td><code>uint32_t</code></td>
+<td></td>
+</tr>
+<tr class="odd">
+<td><code>int64</code></td>
+<td><code>int64_t</code></td>
+<td></td>
+</tr>
+<tr class="even">
+<td><code>uint64</code></td>
+<td><code>uint64_t</code></td>
+<td></td>
+</tr>
+<tr class="odd">
+<td><code>float</code></td>
+<td><code>float</code></td>
+<td>Also usable as <code>double</code></td>
+</tr>
+<tr class="even">
+<td><code>double</code></td>
+<td><code>double</code></td>
+<td></td>
+</tr>
+<tr class="odd">
+<td><code>string</code></td>
+<td><code>std::string</code></td>
+<td></td>
+</tr>
+<tr class="even">
+<td><code>boolean</code></td>
+<td><code>bool</code></td>
+<td>Values: <code>true</code> / <code>false</code></td>
+</tr>
+</tbody>
+</table>
+<h4 id="array-variables">Array variables</h4>
+<p>Omit the <code>value</code> attribute and provide <code>&lt;value&gt;</code> child elements, one per element:</p>
+<div class="sourceCode" id="cb28"><pre class="sourceCode xml"><code class="sourceCode xml"><span id="cb28-1"><a href="#cb28-1" aria-hidden="true" tabindex="-1"></a>&lt;<span class="kw">variable</span><span class="ot"> name=</span><span class="st">&quot;myArray&quot;</span><span class="ot"> type=</span><span class="st">&quot;float&quot;</span>&gt;</span>
+<span id="cb28-2"><a href="#cb28-2" aria-hidden="true" tabindex="-1"></a>  &lt;<span class="kw">value</span><span class="ot"> i=</span><span class="st">&quot;0&quot;</span><span class="ot"> v=</span><span class="st">&quot;1.0&quot;</span> /&gt;</span>
+<span id="cb28-3"><a href="#cb28-3" aria-hidden="true" tabindex="-1"></a>  &lt;<span class="kw">value</span><span class="ot"> i=</span><span class="st">&quot;1&quot;</span><span class="ot"> v=</span><span class="st">&quot;2.5&quot;</span> /&gt;</span>
+<span id="cb28-4"><a href="#cb28-4" aria-hidden="true" tabindex="-1"></a>  &lt;<span class="kw">value</span><span class="ot"> i=</span><span class="st">&quot;2&quot;</span><span class="ot"> v=</span><span class="st">&quot;3.14&quot;</span> /&gt;</span>
+<span id="cb28-5"><a href="#cb28-5" aria-hidden="true" tabindex="-1"></a>&lt;/<span class="kw">variable</span>&gt;</span></code></pre></div>
+<table>
+<thead>
+<tr class="header">
+<th>Attribute</th>
+<th>Description</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>i</code></td>
+<td>Zero-based index</td>
+</tr>
+<tr class="even">
+<td><code>v</code></td>
+<td>Element value</td>
+</tr>
+</tbody>
+</table>
+<h4 id="hierarchical-modules-namespacing">Hierarchical modules (namespacing)</h4>
+<p>Use <code>&lt;module name="..."&gt;</code> to group variables under a path prefix. Nesting is unlimited:</p>
+<div class="sourceCode" id="cb29"><pre class="sourceCode xml"><code class="sourceCode xml"><span id="cb29-1"><a href="#cb29-1" aria-hidden="true" tabindex="-1"></a>&lt;<span class="kw">module</span><span class="ot"> name=</span><span class="st">&quot;Sensors&quot;</span>&gt;</span>
+<span id="cb29-2"><a href="#cb29-2" aria-hidden="true" tabindex="-1"></a>  &lt;<span class="kw">variable</span><span class="ot"> name=</span><span class="st">&quot;calibration&quot;</span><span class="ot"> type=</span><span class="st">&quot;float&quot;</span><span class="ot"> value=</span><span class="st">&quot;1.05&quot;</span> /&gt;</span>
+<span id="cb29-3"><a href="#cb29-3" aria-hidden="true" tabindex="-1"></a>  &lt;<span class="kw">module</span><span class="ot"> name=</span><span class="st">&quot;Channel1&quot;</span>&gt;</span>
+<span id="cb29-4"><a href="#cb29-4" aria-hidden="true" tabindex="-1"></a>    &lt;<span class="kw">variable</span><span class="ot"> name=</span><span class="st">&quot;offset&quot;</span><span class="ot"> type=</span><span class="st">&quot;int32&quot;</span><span class="ot"> value=</span><span class="st">&quot;10&quot;</span> /&gt;</span>
+<span id="cb29-5"><a href="#cb29-5" aria-hidden="true" tabindex="-1"></a>  &lt;/<span class="kw">module</span>&gt;</span>
+<span id="cb29-6"><a href="#cb29-6" aria-hidden="true" tabindex="-1"></a>&lt;/<span class="kw">module</span>&gt;</span></code></pre></div>
+<p>Variables are accessed with paths <code>Sensors/calibration</code>, <code>Sensors/Channel1/offset</code>, etc.</p>
+<h3 id="reading-values-in-c">8.2 Reading values in C++</h3>
+<p>Include <code>&lt;ChimeraTK/ApplicationCore/ConfigReader.h&gt;</code>, or use the <code>appConfig()</code> free function available inside any <code>ApplicationModule::mainLoop()</code>:</p>
+<div class="sourceCode" id="cb30"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb30-1"><a href="#cb30-1" aria-hidden="true" tabindex="-1"></a><span class="kw">auto</span><span class="op">&amp;</span> cfg <span class="op">=</span> appConfig<span class="op">();</span></span>
+<span id="cb30-2"><a href="#cb30-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb30-3"><a href="#cb30-3" aria-hidden="true" tabindex="-1"></a><span class="co">// Scalar</span></span>
+<span id="cb30-4"><a href="#cb30-4" aria-hidden="true" tabindex="-1"></a><span class="dt">float</span> gain <span class="op">=</span> cfg<span class="op">.</span>get<span class="op">&lt;</span><span class="dt">float</span><span class="op">&gt;(</span><span class="st">&quot;gain&quot;</span><span class="op">);</span></span>
+<span id="cb30-5"><a href="#cb30-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb30-6"><a href="#cb30-6" aria-hidden="true" tabindex="-1"></a><span class="co">// With a default (returned when the key is absent)</span></span>
+<span id="cb30-7"><a href="#cb30-7" aria-hidden="true" tabindex="-1"></a><span class="dt">int32_t</span> cycles <span class="op">=</span> cfg<span class="op">.</span>get<span class="op">&lt;</span><span class="dt">int32_t</span><span class="op">&gt;(</span><span class="st">&quot;maxCycles&quot;</span><span class="op">,</span> <span class="dv">100</span><span class="op">);</span></span>
+<span id="cb30-8"><a href="#cb30-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb30-9"><a href="#cb30-9" aria-hidden="true" tabindex="-1"></a><span class="co">// Array</span></span>
+<span id="cb30-10"><a href="#cb30-10" aria-hidden="true" tabindex="-1"></a><span class="bu">std::</span>vector<span class="op">&lt;</span><span class="dt">float</span><span class="op">&gt;</span> lut <span class="op">=</span> cfg<span class="op">.</span>get<span class="op">&lt;</span><span class="bu">std::</span>vector<span class="op">&lt;</span><span class="dt">float</span><span class="op">&gt;&gt;(</span><span class="st">&quot;lookupTable&quot;</span><span class="op">);</span></span>
+<span id="cb30-11"><a href="#cb30-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb30-12"><a href="#cb30-12" aria-hidden="true" tabindex="-1"></a><span class="co">// List sub-module names at a given path</span></span>
+<span id="cb30-13"><a href="#cb30-13" aria-hidden="true" tabindex="-1"></a><span class="bu">std::</span>vector<span class="op">&lt;</span><span class="bu">std::</span>string<span class="op">&gt;</span> channels <span class="op">=</span> cfg<span class="op">.</span>getModules<span class="op">(</span><span class="st">&quot;Sensors&quot;</span><span class="op">);</span></span>
+<span id="cb30-14"><a href="#cb30-14" aria-hidden="true" tabindex="-1"></a><span class="co">// → {&quot;Channel1&quot;}</span></span></code></pre></div>
+<p>Path rules: separator is <code>/</code>; a leading <code>/</code> is stripped automatically so <code>"/foo"</code> and <code>"foo"</code> are equivalent. Names are case-sensitive.</p>
+<h3 id="reading-values-from-scripts">8.3 Reading values from scripts</h3>
+<p>See §10.5 for the Lua and Python config APIs. Lua scripts can use <code>xmlConfig.get("path", default)</code> (type inferred from the default) or the legacy <code>cfg:get(DataType.T, "path")</code> form; Python uses <code>cfg.get(DataType.T, "path")</code>.</p>
+<h3 id="declaring-scripted-modules">8.4 Declaring scripted modules</h3>
+<p>The <code>&lt;LuaModules&gt;</code> and <code>&lt;PythonModules&gt;</code> sections tell the framework which scripts to load. Each <code>&lt;module&gt;</code> child specifies one script; see §10.1 for full details.</p>
+<div class="sourceCode" id="cb31"><pre class="sourceCode xml"><code class="sourceCode xml"><span id="cb31-1"><a href="#cb31-1" aria-hidden="true" tabindex="-1"></a>&lt;<span class="kw">module</span><span class="ot"> name=</span><span class="st">&quot;LuaModules&quot;</span>&gt;</span>
+<span id="cb31-2"><a href="#cb31-2" aria-hidden="true" tabindex="-1"></a>  &lt;<span class="kw">module</span><span class="ot"> name=</span><span class="st">&quot;Control&quot;</span>&gt;</span>
+<span id="cb31-3"><a href="#cb31-3" aria-hidden="true" tabindex="-1"></a>    &lt;<span class="kw">variable</span><span class="ot"> name=</span><span class="st">&quot;path&quot;</span><span class="ot"> type=</span><span class="st">&quot;string&quot;</span><span class="ot"> value=</span><span class="st">&quot;control&quot;</span> /&gt;</span>
+<span id="cb31-4"><a href="#cb31-4" aria-hidden="true" tabindex="-1"></a>  &lt;/<span class="kw">module</span>&gt;</span>
+<span id="cb31-5"><a href="#cb31-5" aria-hidden="true" tabindex="-1"></a>&lt;/<span class="kw">module</span>&gt;</span></code></pre></div>
+<h3 id="control-system-visibility">8.5 Control system visibility</h3>
+<p>All variables declared in the config file are automatically published as process variables under <code>/Configurable/</code> in the control system hierarchy. Operators can read (and, for writable variables, modify) them at run time through the standard control-system interface.</p>
+<h3 id="complete-example">8.6 Complete example</h3>
+<div class="sourceCode" id="cb32"><pre class="sourceCode xml"><code class="sourceCode xml"><span id="cb32-1"><a href="#cb32-1" aria-hidden="true" tabindex="-1"></a>&lt;<span class="kw">configuration</span>&gt;</span>
+<span id="cb32-2"><a href="#cb32-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb32-3"><a href="#cb32-3" aria-hidden="true" tabindex="-1"></a>  <span class="co">&lt;!-- Scripted modules --&gt;</span></span>
+<span id="cb32-4"><a href="#cb32-4" aria-hidden="true" tabindex="-1"></a>  &lt;<span class="kw">module</span><span class="ot"> name=</span><span class="st">&quot;LuaModules&quot;</span>&gt;</span>
+<span id="cb32-5"><a href="#cb32-5" aria-hidden="true" tabindex="-1"></a>    &lt;<span class="kw">module</span><span class="ot"> name=</span><span class="st">&quot;Control&quot;</span>&gt;</span>
+<span id="cb32-6"><a href="#cb32-6" aria-hidden="true" tabindex="-1"></a>      &lt;<span class="kw">variable</span><span class="ot"> name=</span><span class="st">&quot;path&quot;</span><span class="ot"> type=</span><span class="st">&quot;string&quot;</span><span class="ot"> value=</span><span class="st">&quot;control&quot;</span> /&gt;</span>
+<span id="cb32-7"><a href="#cb32-7" aria-hidden="true" tabindex="-1"></a>    &lt;/<span class="kw">module</span>&gt;</span>
+<span id="cb32-8"><a href="#cb32-8" aria-hidden="true" tabindex="-1"></a>  &lt;/<span class="kw">module</span>&gt;</span>
+<span id="cb32-9"><a href="#cb32-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb32-10"><a href="#cb32-10" aria-hidden="true" tabindex="-1"></a>  <span class="co">&lt;!-- Scalars at the top level --&gt;</span></span>
+<span id="cb32-11"><a href="#cb32-11" aria-hidden="true" tabindex="-1"></a>  &lt;<span class="kw">variable</span><span class="ot"> name=</span><span class="st">&quot;maxCurrent&quot;</span><span class="ot">  type=</span><span class="st">&quot;float&quot;</span><span class="ot">   value=</span><span class="st">&quot;5.0&quot;</span>    /&gt;</span>
+<span id="cb32-12"><a href="#cb32-12" aria-hidden="true" tabindex="-1"></a>  &lt;<span class="kw">variable</span><span class="ot"> name=</span><span class="st">&quot;deviceName&quot;</span><span class="ot">  type=</span><span class="st">&quot;string&quot;</span><span class="ot">  value=</span><span class="st">&quot;DEV001&quot;</span> /&gt;</span>
+<span id="cb32-13"><a href="#cb32-13" aria-hidden="true" tabindex="-1"></a>  &lt;<span class="kw">variable</span><span class="ot"> name=</span><span class="st">&quot;enableDebug&quot;</span><span class="ot"> type=</span><span class="st">&quot;boolean&quot;</span><span class="ot"> value=</span><span class="st">&quot;false&quot;</span>  /&gt;</span>
+<span id="cb32-14"><a href="#cb32-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb32-15"><a href="#cb32-15" aria-hidden="true" tabindex="-1"></a>  <span class="co">&lt;!-- Nested namespace --&gt;</span></span>
+<span id="cb32-16"><a href="#cb32-16" aria-hidden="true" tabindex="-1"></a>  &lt;<span class="kw">module</span><span class="ot"> name=</span><span class="st">&quot;PID&quot;</span>&gt;</span>
+<span id="cb32-17"><a href="#cb32-17" aria-hidden="true" tabindex="-1"></a>    &lt;<span class="kw">variable</span><span class="ot"> name=</span><span class="st">&quot;kP&quot;</span><span class="ot"> type=</span><span class="st">&quot;double&quot;</span><span class="ot"> value=</span><span class="st">&quot;1.2&quot;</span>  /&gt;</span>
+<span id="cb32-18"><a href="#cb32-18" aria-hidden="true" tabindex="-1"></a>    &lt;<span class="kw">variable</span><span class="ot"> name=</span><span class="st">&quot;kI&quot;</span><span class="ot"> type=</span><span class="st">&quot;double&quot;</span><span class="ot"> value=</span><span class="st">&quot;0.05&quot;</span> /&gt;</span>
+<span id="cb32-19"><a href="#cb32-19" aria-hidden="true" tabindex="-1"></a>    &lt;<span class="kw">variable</span><span class="ot"> name=</span><span class="st">&quot;kD&quot;</span><span class="ot"> type=</span><span class="st">&quot;double&quot;</span><span class="ot"> value=</span><span class="st">&quot;0.01&quot;</span> /&gt;</span>
+<span id="cb32-20"><a href="#cb32-20" aria-hidden="true" tabindex="-1"></a>  &lt;/<span class="kw">module</span>&gt;</span>
+<span id="cb32-21"><a href="#cb32-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb32-22"><a href="#cb32-22" aria-hidden="true" tabindex="-1"></a>  <span class="co">&lt;!-- Array --&gt;</span></span>
+<span id="cb32-23"><a href="#cb32-23" aria-hidden="true" tabindex="-1"></a>  &lt;<span class="kw">variable</span><span class="ot"> name=</span><span class="st">&quot;lookupTable&quot;</span><span class="ot"> type=</span><span class="st">&quot;float&quot;</span>&gt;</span>
+<span id="cb32-24"><a href="#cb32-24" aria-hidden="true" tabindex="-1"></a>    &lt;<span class="kw">value</span><span class="ot"> i=</span><span class="st">&quot;0&quot;</span><span class="ot"> v=</span><span class="st">&quot;0.0&quot;</span>  /&gt;</span>
+<span id="cb32-25"><a href="#cb32-25" aria-hidden="true" tabindex="-1"></a>    &lt;<span class="kw">value</span><span class="ot"> i=</span><span class="st">&quot;1&quot;</span><span class="ot"> v=</span><span class="st">&quot;0.25&quot;</span> /&gt;</span>
+<span id="cb32-26"><a href="#cb32-26" aria-hidden="true" tabindex="-1"></a>    &lt;<span class="kw">value</span><span class="ot"> i=</span><span class="st">&quot;2&quot;</span><span class="ot"> v=</span><span class="st">&quot;0.5&quot;</span>  /&gt;</span>
+<span id="cb32-27"><a href="#cb32-27" aria-hidden="true" tabindex="-1"></a>    &lt;<span class="kw">value</span><span class="ot"> i=</span><span class="st">&quot;3&quot;</span><span class="ot"> v=</span><span class="st">&quot;0.75&quot;</span> /&gt;</span>
+<span id="cb32-28"><a href="#cb32-28" aria-hidden="true" tabindex="-1"></a>    &lt;<span class="kw">value</span><span class="ot"> i=</span><span class="st">&quot;4&quot;</span><span class="ot"> v=</span><span class="st">&quot;1.0&quot;</span>  /&gt;</span>
+<span id="cb32-29"><a href="#cb32-29" aria-hidden="true" tabindex="-1"></a>  &lt;/<span class="kw">variable</span>&gt;</span>
+<span id="cb32-30"><a href="#cb32-30" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb32-31"><a href="#cb32-31" aria-hidden="true" tabindex="-1"></a>&lt;/<span class="kw">configuration</span>&gt;</span></code></pre></div>
+<p>Corresponding C++ reads:</p>
+<div class="sourceCode" id="cb33"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb33-1"><a href="#cb33-1" aria-hidden="true" tabindex="-1"></a><span class="kw">auto</span><span class="op">&amp;</span> cfg <span class="op">=</span> appConfig<span class="op">();</span></span>
+<span id="cb33-2"><a href="#cb33-2" aria-hidden="true" tabindex="-1"></a><span class="dt">float</span>  maxI <span class="op">=</span> cfg<span class="op">.</span>get<span class="op">&lt;</span><span class="dt">float</span><span class="op">&gt;(</span><span class="st">&quot;maxCurrent&quot;</span><span class="op">);</span>                  <span class="co">// 5.0</span></span>
+<span id="cb33-3"><a href="#cb33-3" aria-hidden="true" tabindex="-1"></a><span class="dt">double</span> kP   <span class="op">=</span> cfg<span class="op">.</span>get<span class="op">&lt;</span><span class="dt">double</span><span class="op">&gt;(</span><span class="st">&quot;PID/kP&quot;</span><span class="op">);</span>                     <span class="co">// 1.2</span></span>
+<span id="cb33-4"><a href="#cb33-4" aria-hidden="true" tabindex="-1"></a><span class="kw">auto</span>   lut  <span class="op">=</span> cfg<span class="op">.</span>get<span class="op">&lt;</span><span class="bu">std::</span>vector<span class="op">&lt;</span><span class="dt">float</span><span class="op">&gt;&gt;(</span><span class="st">&quot;lookupTable&quot;</span><span class="op">);</span>    <span class="co">// 5-element vector</span></span></code></pre></div>
+<hr />
+<h2 id="testing-with-testfacility">9. Testing with TestFacility</h2>
+<p><code>TestFacility</code> runs the application in a deterministic, single-step mode — perfect for unit tests with Boost.Test.</p>
+<h3 id="basic-pattern">9.1 Basic pattern</h3>
+<div class="sourceCode" id="cb34"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb34-1"><a href="#cb34-1" aria-hidden="true" tabindex="-1"></a><span class="pp">#define BOOST_TEST_MODULE </span>testController</span>
+<span id="cb34-2"><a href="#cb34-2" aria-hidden="true" tabindex="-1"></a><span class="pp">#include </span><span class="im">&lt;boost/test/included/unit_test.hpp&gt;</span></span>
+<span id="cb34-3"><a href="#cb34-3" aria-hidden="true" tabindex="-1"></a><span class="pp">#include </span><span class="im">&lt;ChimeraTK/ApplicationCore/TestFacility.h&gt;</span></span>
+<span id="cb34-4"><a href="#cb34-4" aria-hidden="true" tabindex="-1"></a><span class="pp">#include </span><span class="im">&quot;MyApp.h&quot;</span></span>
+<span id="cb34-5"><a href="#cb34-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb34-6"><a href="#cb34-6" aria-hidden="true" tabindex="-1"></a><span class="kw">namespace</span> ctk <span class="op">=</span> ChimeraTK<span class="op">;</span></span>
+<span id="cb34-7"><a href="#cb34-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb34-8"><a href="#cb34-8" aria-hidden="true" tabindex="-1"></a><span class="ex">BOOST_</span>AUTO_TEST_CASE<span class="op">(</span>testBasicControl<span class="op">)</span> <span class="op">{</span></span>
+<span id="cb34-9"><a href="#cb34-9" aria-hidden="true" tabindex="-1"></a>    MyApp app<span class="op">(</span><span class="st">&quot;MyApp&quot;</span><span class="op">);</span></span>
+<span id="cb34-10"><a href="#cb34-10" aria-hidden="true" tabindex="-1"></a>    ctk<span class="op">::</span>TestFacility tf<span class="op">(</span>app<span class="op">);</span></span>
+<span id="cb34-11"><a href="#cb34-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb34-12"><a href="#cb34-12" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Obtain accessors for test-side reads and writes</span></span>
+<span id="cb34-13"><a href="#cb34-13" aria-hidden="true" tabindex="-1"></a>    <span class="kw">auto</span> setpoint <span class="op">=</span> tf<span class="op">.</span>getScalar<span class="op">&lt;</span><span class="dt">float</span><span class="op">&gt;(</span><span class="st">&quot;/Controller/setpoint&quot;</span><span class="op">);</span></span>
+<span id="cb34-14"><a href="#cb34-14" aria-hidden="true" tabindex="-1"></a>    <span class="kw">auto</span> readback <span class="op">=</span> tf<span class="op">.</span>getScalar<span class="op">&lt;</span><span class="dt">float</span><span class="op">&gt;(</span><span class="st">&quot;/Controller/readback&quot;</span><span class="op">);</span></span>
+<span id="cb34-15"><a href="#cb34-15" aria-hidden="true" tabindex="-1"></a>    <span class="kw">auto</span> current  <span class="op">=</span> tf<span class="op">.</span>getScalar<span class="op">&lt;</span><span class="dt">float</span><span class="op">&gt;(</span><span class="st">&quot;/Controller/current&quot;</span><span class="op">);</span></span>
+<span id="cb34-16"><a href="#cb34-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb34-17"><a href="#cb34-17" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Provide initial values before the threads start</span></span>
+<span id="cb34-18"><a href="#cb34-18" aria-hidden="true" tabindex="-1"></a>    tf<span class="op">.</span>setScalarDefault<span class="op">&lt;</span><span class="dt">float</span><span class="op">&gt;(</span><span class="st">&quot;/Controller/setpoint&quot;</span><span class="op">,</span> <span class="fl">100.0</span><span class="bu">f</span><span class="op">);</span></span>
+<span id="cb34-19"><a href="#cb34-19" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb34-20"><a href="#cb34-20" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Start all threads; modules block at their first blocking read</span></span>
+<span id="cb34-21"><a href="#cb34-21" aria-hidden="true" tabindex="-1"></a>    tf<span class="op">.</span>runApplication<span class="op">();</span></span>
+<span id="cb34-22"><a href="#cb34-22" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb34-23"><a href="#cb34-23" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Provide readback and step the application</span></span>
+<span id="cb34-24"><a href="#cb34-24" aria-hidden="true" tabindex="-1"></a>    readback <span class="op">=</span> <span class="fl">80.0</span><span class="bu">f</span><span class="op">;</span></span>
+<span id="cb34-25"><a href="#cb34-25" aria-hidden="true" tabindex="-1"></a>    readback<span class="op">.</span>write<span class="op">();</span></span>
+<span id="cb34-26"><a href="#cb34-26" aria-hidden="true" tabindex="-1"></a>    tf<span class="op">.</span>stepApplication<span class="op">();</span></span>
+<span id="cb34-27"><a href="#cb34-27" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb34-28"><a href="#cb34-28" aria-hidden="true" tabindex="-1"></a>    <span class="co">// Read the result</span></span>
+<span id="cb34-29"><a href="#cb34-29" aria-hidden="true" tabindex="-1"></a>    <span class="ex">BOOST_</span>TEST<span class="op">(</span>current<span class="op">.</span>readNonBlocking<span class="op">());</span></span>
+<span id="cb34-30"><a href="#cb34-30" aria-hidden="true" tabindex="-1"></a>    <span class="ex">BOOST_</span>TEST<span class="op">(</span><span class="dt">float</span><span class="op">(</span>current<span class="op">)</span> <span class="op">==</span> <span class="fl">100.0</span><span class="bu">f</span> <span class="op">*</span> <span class="op">(</span><span class="fl">100.0</span><span class="bu">f</span> <span class="op">-</span> <span class="fl">80.0</span><span class="bu">f</span><span class="op">),</span></span>
+<span id="cb34-31"><a href="#cb34-31" aria-hidden="true" tabindex="-1"></a>               <span class="ex">boost::</span>test_tools<span class="ex">::</span>tolerance<span class="op">(</span><span class="fl">0.01</span><span class="bu">f</span><span class="op">));</span></span>
+<span id="cb34-32"><a href="#cb34-32" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<h3 id="testfacility-api-summary">9.2 TestFacility API summary</h3>
+<div class="sourceCode" id="cb35"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb35-1"><a href="#cb35-1" aria-hidden="true" tabindex="-1"></a>ctk<span class="op">::</span>TestFacility tf<span class="op">(</span>app<span class="op">);</span></span>
+<span id="cb35-2"><a href="#cb35-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb35-3"><a href="#cb35-3" aria-hidden="true" tabindex="-1"></a><span class="co">// --- Setup (before runApplication) ---</span></span>
+<span id="cb35-4"><a href="#cb35-4" aria-hidden="true" tabindex="-1"></a>tf<span class="op">.</span>setScalarDefault<span class="op">&lt;</span>T<span class="op">&gt;(</span><span class="st">&quot;/path&quot;</span><span class="op">,</span> value<span class="op">);</span></span>
+<span id="cb35-5"><a href="#cb35-5" aria-hidden="true" tabindex="-1"></a>tf<span class="op">.</span>setArrayDefault<span class="op">&lt;</span>T<span class="op">&gt;(</span><span class="st">&quot;/path&quot;</span><span class="op">,</span> <span class="op">{</span>v0<span class="op">,</span> v1<span class="op">,</span> v2<span class="op">});</span></span>
+<span id="cb35-6"><a href="#cb35-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb35-7"><a href="#cb35-7" aria-hidden="true" tabindex="-1"></a><span class="co">// --- Start ---</span></span>
+<span id="cb35-8"><a href="#cb35-8" aria-hidden="true" tabindex="-1"></a>tf<span class="op">.</span>runApplication<span class="op">();</span></span>
+<span id="cb35-9"><a href="#cb35-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb35-10"><a href="#cb35-10" aria-hidden="true" tabindex="-1"></a><span class="co">// --- Control ---</span></span>
+<span id="cb35-11"><a href="#cb35-11" aria-hidden="true" tabindex="-1"></a>tf<span class="op">.</span>stepApplication<span class="op">();</span>            <span class="co">// run one full iteration of all modules</span></span>
+<span id="cb35-12"><a href="#cb35-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb35-13"><a href="#cb35-13" aria-hidden="true" tabindex="-1"></a><span class="co">// --- Low-level accessors ---</span></span>
+<span id="cb35-14"><a href="#cb35-14" aria-hidden="true" tabindex="-1"></a><span class="kw">auto</span> s <span class="op">=</span> tf<span class="op">.</span>getScalar<span class="op">&lt;</span>T<span class="op">&gt;(</span><span class="st">&quot;/path&quot;</span><span class="op">);</span>   <span class="co">// ScalarRegisterAccessor&lt;T&gt;</span></span>
+<span id="cb35-15"><a href="#cb35-15" aria-hidden="true" tabindex="-1"></a><span class="kw">auto</span> a <span class="op">=</span> tf<span class="op">.</span>getArray<span class="op">&lt;</span>T<span class="op">&gt;(</span><span class="st">&quot;/path&quot;</span><span class="op">);</span>    <span class="co">// OneDRegisterAccessor&lt;T&gt;</span></span>
+<span id="cb35-16"><a href="#cb35-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb35-17"><a href="#cb35-17" aria-hidden="true" tabindex="-1"></a><span class="co">// Using the low-level accessor:</span></span>
+<span id="cb35-18"><a href="#cb35-18" aria-hidden="true" tabindex="-1"></a>s <span class="op">=</span> <span class="dv">42</span><span class="op">;</span></span>
+<span id="cb35-19"><a href="#cb35-19" aria-hidden="true" tabindex="-1"></a>s<span class="op">.</span>write<span class="op">();</span>                <span class="co">// push to application</span></span>
+<span id="cb35-20"><a href="#cb35-20" aria-hidden="true" tabindex="-1"></a>tf<span class="op">.</span>stepApplication<span class="op">();</span></span>
+<span id="cb35-21"><a href="#cb35-21" aria-hidden="true" tabindex="-1"></a><span class="ex">BOOST_</span>TEST<span class="op">(</span>s<span class="op">.</span>readNonBlocking<span class="op">());</span></span>
+<span id="cb35-22"><a href="#cb35-22" aria-hidden="true" tabindex="-1"></a><span class="ex">BOOST_</span>TEST<span class="op">(</span><span class="dt">float</span><span class="op">(</span>s<span class="op">)</span> <span class="op">==</span> expected<span class="op">);</span></span></code></pre></div>
+<h3 id="testing-array-variables">9.3 Testing array variables</h3>
+<div class="sourceCode" id="cb36"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb36-1"><a href="#cb36-1" aria-hidden="true" tabindex="-1"></a><span class="kw">auto</span> arrayIn  <span class="op">=</span> tf<span class="op">.</span>getArray<span class="op">&lt;</span><span class="dt">int32_t</span><span class="op">&gt;(</span><span class="st">&quot;/SomeName/ArrayIn&quot;</span><span class="op">);</span></span>
+<span id="cb36-2"><a href="#cb36-2" aria-hidden="true" tabindex="-1"></a><span class="kw">auto</span> arrayOut <span class="op">=</span> tf<span class="op">.</span>getArray<span class="op">&lt;</span><span class="dt">int32_t</span><span class="op">&gt;(</span><span class="st">&quot;/SomeName/ArrayOut&quot;</span><span class="op">);</span></span>
+<span id="cb36-3"><a href="#cb36-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb36-4"><a href="#cb36-4" aria-hidden="true" tabindex="-1"></a>arrayIn <span class="op">=</span> <span class="op">{</span><span class="dv">10</span><span class="op">,</span> <span class="dv">20</span><span class="op">,</span> <span class="dv">30</span><span class="op">};</span></span>
+<span id="cb36-5"><a href="#cb36-5" aria-hidden="true" tabindex="-1"></a>arrayIn<span class="op">.</span>write<span class="op">();</span></span>
+<span id="cb36-6"><a href="#cb36-6" aria-hidden="true" tabindex="-1"></a>tf<span class="op">.</span>stepApplication<span class="op">();</span></span>
+<span id="cb36-7"><a href="#cb36-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb36-8"><a href="#cb36-8" aria-hidden="true" tabindex="-1"></a><span class="ex">BOOST_</span>TEST<span class="op">(</span>arrayOut<span class="op">.</span>readNonBlocking<span class="op">());</span></span>
+<span id="cb36-9"><a href="#cb36-9" aria-hidden="true" tabindex="-1"></a><span class="bu">std::</span>vector<span class="op">&lt;</span><span class="dt">int32_t</span><span class="op">&gt;</span> expected<span class="op">{</span><span class="dv">60</span><span class="op">,</span> <span class="dv">61</span><span class="op">,</span> <span class="dv">62</span><span class="op">,</span> <span class="co">/*…*/</span><span class="op">};</span></span>
+<span id="cb36-10"><a href="#cb36-10" aria-hidden="true" tabindex="-1"></a><span class="ex">BOOST_</span>TEST<span class="op">(</span><span class="bu">std::</span>vector<span class="op">&lt;</span><span class="dt">int32_t</span><span class="op">&gt;(</span>arrayOut<span class="op">)</span> <span class="op">==</span> expected<span class="op">,</span></span>
+<span id="cb36-11"><a href="#cb36-11" aria-hidden="true" tabindex="-1"></a>           <span class="ex">boost::</span>test_tools<span class="ex">::</span>per_element<span class="op">());</span></span></code></pre></div>
+<h3 id="cmakelists-for-tests">9.4 CMakeLists for tests</h3>
+<div class="sourceCode" id="cb37"><pre class="sourceCode cmake"><code class="sourceCode cmake"><span id="cb37-1"><a href="#cb37-1" aria-hidden="true" tabindex="-1"></a><span class="kw">find_package</span>(Boost <span class="ot">COMPONENTS</span> unit_test_framework <span class="ot">REQUIRED</span>)</span>
+<span id="cb37-2"><a href="#cb37-2" aria-hidden="true" tabindex="-1"></a><span class="kw">find_package</span>(ChimeraTK-ApplicationCore <span class="ot">REQUIRED</span>)</span>
+<span id="cb37-3"><a href="#cb37-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb37-4"><a href="#cb37-4" aria-hidden="true" tabindex="-1"></a><span class="kw">add_executable</span>(testMyModule tests/testMyModule.cc src/MyModule.cc)</span>
+<span id="cb37-5"><a href="#cb37-5" aria-hidden="true" tabindex="-1"></a><span class="kw">target_include_directories</span>(testMyModule <span class="ot">PRIVATE</span> include)</span>
+<span id="cb37-6"><a href="#cb37-6" aria-hidden="true" tabindex="-1"></a><span class="kw">target_link_libraries</span>(testMyModule <span class="ot">PRIVATE</span></span>
+<span id="cb37-7"><a href="#cb37-7" aria-hidden="true" tabindex="-1"></a>    <span class="bn">ChimeraTK::ApplicationCore</span></span>
+<span id="cb37-8"><a href="#cb37-8" aria-hidden="true" tabindex="-1"></a>    <span class="bn">Boost::unit_test_framework</span></span>
+<span id="cb37-9"><a href="#cb37-9" aria-hidden="true" tabindex="-1"></a>)</span>
+<span id="cb37-10"><a href="#cb37-10" aria-hidden="true" tabindex="-1"></a><span class="kw">add_test</span>(<span class="ot">NAME</span> testMyModule <span class="ot">COMMAND</span> testMyModule)</span></code></pre></div>
+<hr />
+<h2 id="scripting-modules-lua-and-python">10. Scripting modules (Lua and Python)</h2>
+<p>ApplicationCore supports two scripting back-ends for writing modules without recompilation:</p>
+<table>
+<thead>
+<tr class="header">
+<th>Feature</th>
+<th>Lua</th>
+<th>Python</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td>Build flag</td>
+<td><code>ENABLE_LUA_BINDINGS=ON</code></td>
+<td><code>ENABLE_PYTHON_BINDINGS=ON</code></td>
+</tr>
+<tr class="even">
+<td>Config section</td>
+<td><code>&lt;LuaModules&gt;</code></td>
+<td><code>&lt;PythonModules&gt;</code></td>
+</tr>
+<tr class="odd">
+<td>Style</td>
+<td>Functional (closure or method)</td>
+<td>Class-based (subclass)</td>
+</tr>
+<tr class="even">
+<td>Arrays</td>
+<td>1-based, plain tables</td>
+<td>0-based, numpy arrays</td>
+</tr>
+<tr class="odd">
+<td>Interrupts</td>
+<td>String sentinel</td>
+<td><code>ThreadInterrupted</code> exception</td>
+</tr>
+<tr class="even">
+<td>Config API</td>
+<td><code>xmlConfig.get(path, default)</code></td>
+<td><code>cfg.get(DataType.T, path)</code></td>
+</tr>
+</tbody>
+</table>
+<p>The sections below show both languages side by side. The C++ API (§3–§5) is the authoritative reference for behaviour; the scripting bindings mirror it closely.</p>
+<h3 id="enabling-scripting-modules-in-the-config-xml">10.1 Enabling scripting modules in the config XML</h3>
+<p><strong>Lua</strong> — add a <code>&lt;LuaModules&gt;</code> section. Each <code>&lt;module&gt;</code> child specifies one Lua module name (passed to <code>require</code>, no <code>.lua</code> extension — identical convention to Python):</p>
+<div class="sourceCode" id="cb38"><pre class="sourceCode xml"><code class="sourceCode xml"><span id="cb38-1"><a href="#cb38-1" aria-hidden="true" tabindex="-1"></a>&lt;<span class="kw">configuration</span>&gt;</span>
+<span id="cb38-2"><a href="#cb38-2" aria-hidden="true" tabindex="-1"></a>  &lt;<span class="kw">module</span><span class="ot"> name=</span><span class="st">&quot;LuaModules&quot;</span>&gt;</span>
+<span id="cb38-3"><a href="#cb38-3" aria-hidden="true" tabindex="-1"></a>    &lt;<span class="kw">module</span><span class="ot"> name=</span><span class="st">&quot;Controller&quot;</span>&gt;</span>
+<span id="cb38-4"><a href="#cb38-4" aria-hidden="true" tabindex="-1"></a>      &lt;<span class="kw">variable</span><span class="ot"> name=</span><span class="st">&quot;path&quot;</span><span class="ot"> type=</span><span class="st">&quot;string&quot;</span><span class="ot"> value=</span><span class="st">&quot;controller&quot;</span> /&gt;</span>
+<span id="cb38-5"><a href="#cb38-5" aria-hidden="true" tabindex="-1"></a>    &lt;/<span class="kw">module</span>&gt;</span>
+<span id="cb38-6"><a href="#cb38-6" aria-hidden="true" tabindex="-1"></a>  &lt;/<span class="kw">module</span>&gt;</span>
+<span id="cb38-7"><a href="#cb38-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb38-8"><a href="#cb38-8" aria-hidden="true" tabindex="-1"></a>  <span class="co">&lt;!-- any other config variables are accessible via xmlConfig.get() or appConfig() --&gt;</span></span>
+<span id="cb38-9"><a href="#cb38-9" aria-hidden="true" tabindex="-1"></a>  &lt;<span class="kw">variable</span><span class="ot"> name=</span><span class="st">&quot;gain&quot;</span><span class="ot"> type=</span><span class="st">&quot;float&quot;</span><span class="ot"> value=</span><span class="st">&quot;2.5&quot;</span> /&gt;</span>
+<span id="cb38-10"><a href="#cb38-10" aria-hidden="true" tabindex="-1"></a>&lt;/<span class="kw">configuration</span>&gt;</span></code></pre></div>
+<p>The <code>path</code> is a Lua module name resolved via <code>package.path</code> (the working directory is searched first).</p>
+<p><strong>Python equivalent</strong> — use <code>&lt;PythonModules&gt;</code> instead. The <code>path</code> value is a Python module name (passed to <code>import</code>), following the same convention:</p>
+<div class="sourceCode" id="cb39"><pre class="sourceCode xml"><code class="sourceCode xml"><span id="cb39-1"><a href="#cb39-1" aria-hidden="true" tabindex="-1"></a>&lt;<span class="kw">configuration</span>&gt;</span>
+<span id="cb39-2"><a href="#cb39-2" aria-hidden="true" tabindex="-1"></a>  &lt;<span class="kw">module</span><span class="ot"> name=</span><span class="st">&quot;PythonModules&quot;</span>&gt;</span>
+<span id="cb39-3"><a href="#cb39-3" aria-hidden="true" tabindex="-1"></a>    &lt;<span class="kw">module</span><span class="ot"> name=</span><span class="st">&quot;Controller&quot;</span>&gt;</span>
+<span id="cb39-4"><a href="#cb39-4" aria-hidden="true" tabindex="-1"></a>      &lt;<span class="kw">variable</span><span class="ot"> name=</span><span class="st">&quot;path&quot;</span><span class="ot"> type=</span><span class="st">&quot;string&quot;</span><span class="ot"> value=</span><span class="st">&quot;controller&quot;</span> /&gt;</span>
+<span id="cb39-5"><a href="#cb39-5" aria-hidden="true" tabindex="-1"></a>    &lt;/<span class="kw">module</span>&gt;</span>
+<span id="cb39-6"><a href="#cb39-6" aria-hidden="true" tabindex="-1"></a>  &lt;/<span class="kw">module</span>&gt;</span>
+<span id="cb39-7"><a href="#cb39-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb39-8"><a href="#cb39-8" aria-hidden="true" tabindex="-1"></a>  &lt;<span class="kw">variable</span><span class="ot"> name=</span><span class="st">&quot;gain&quot;</span><span class="ot"> type=</span><span class="st">&quot;float&quot;</span><span class="ot"> value=</span><span class="st">&quot;2.5&quot;</span> /&gt;</span>
+<span id="cb39-9"><a href="#cb39-9" aria-hidden="true" tabindex="-1"></a>&lt;/<span class="kw">configuration</span>&gt;</span></code></pre></div>
+<p>The module is imported from Python’s <code>sys.path</code>, so <code>controller.py</code> must be importable from the working directory (or installed as a package).</p>
+<h3 id="module-structure">10.2 Module structure</h3>
+<p><strong>Lua</strong> — there are two equivalent styles. The preferred <em>method-call</em> style assigns <code>mainLoop</code> as a function and uses method syntax for accessor factories:</p>
+<div class="sourceCode" id="cb40"><pre class="sourceCode lua"><code class="sourceCode lua"><span id="cb40-1"><a href="#cb40-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- controller.lua  (preferred style)</span></span>
+<span id="cb40-2"><a href="#cb40-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb40-3"><a href="#cb40-3" aria-hidden="true" tabindex="-1"></a><span class="kw">local</span> mod <span class="op">=</span> ApplicationModule<span class="op">(</span>app<span class="op">,</span> <span class="st">&quot;Controller&quot;</span><span class="op">,</span> <span class="st">&quot;Lua PID controller&quot;</span><span class="op">)</span></span>
+<span id="cb40-4"><a href="#cb40-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb40-5"><a href="#cb40-5" aria-hidden="true" tabindex="-1"></a><span class="co">-- Declare accessors using method syntax on the module object.</span></span>
+<span id="cb40-6"><a href="#cb40-6" aria-hidden="true" tabindex="-1"></a>mod<span class="op">.</span>setpoint <span class="op">=</span> mod<span class="op">:</span>ScalarPollInput<span class="op">(</span><span class="cn">D</span>ataType<span class="op">.</span>float32<span class="op">,</span> <span class="st">&quot;setpoint&quot;</span><span class="op">,</span> <span class="st">&quot;degC&quot;</span><span class="op">,</span> <span class="st">&quot;Setpoint&quot;</span><span class="op">)</span></span>
+<span id="cb40-7"><a href="#cb40-7" aria-hidden="true" tabindex="-1"></a>mod<span class="op">.</span>readback <span class="op">=</span> mod<span class="op">:</span>ScalarPushInput<span class="op">(</span><span class="cn">D</span>ataType<span class="op">.</span>float32<span class="op">,</span> <span class="st">&quot;readback&quot;</span><span class="op">,</span> <span class="st">&quot;degC&quot;</span><span class="op">,</span> <span class="st">&quot;Actual temperature&quot;</span><span class="op">)</span></span>
+<span id="cb40-8"><a href="#cb40-8" aria-hidden="true" tabindex="-1"></a>mod<span class="op">.</span>output   <span class="op">=</span> mod<span class="op">:</span>ScalarOutput   <span class="op">(</span><span class="cn">D</span>ataType<span class="op">.</span>float32<span class="op">,</span> <span class="st">&quot;output&quot;</span><span class="op">,</span>   <span class="st">&quot;mA&quot;</span><span class="op">,</span>   <span class="st">&quot;Heater current&quot;</span><span class="op">)</span></span>
+<span id="cb40-9"><a href="#cb40-9" aria-hidden="true" tabindex="-1"></a>mod<span class="op">.</span>gain     <span class="op">=</span> mod<span class="op">:</span>ScalarPollInput<span class="op">(</span><span class="cn">D</span>ataType<span class="op">.</span>float32<span class="op">,</span> <span class="st">&quot;gain&quot;</span><span class="op">,</span>     <span class="st">&quot;&quot;</span><span class="op">,</span>     <span class="st">&quot;Control gain&quot;</span><span class="op">)</span></span>
+<span id="cb40-10"><a href="#cb40-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb40-11"><a href="#cb40-11" aria-hidden="true" tabindex="-1"></a><span class="co">-- Read a config value — type is inferred from the Lua default.</span></span>
+<span id="cb40-12"><a href="#cb40-12" aria-hidden="true" tabindex="-1"></a><span class="kw">local</span> scale <span class="op">=</span> xmlConfig<span class="op">.</span>get<span class="op">(</span><span class="st">&quot;Controller/scale&quot;</span><span class="op">,</span> <span class="dv">1.0</span><span class="op">)</span>    <span class="co">-- number → float64</span></span>
+<span id="cb40-13"><a href="#cb40-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb40-14"><a href="#cb40-14" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> mod<span class="op">:</span>mainLoop<span class="op">()</span></span>
+<span id="cb40-15"><a href="#cb40-15" aria-hidden="true" tabindex="-1"></a>    <span class="co">-- File-scope locals (scale) and accessors are available as upvalues.</span></span>
+<span id="cb40-16"><a href="#cb40-16" aria-hidden="true" tabindex="-1"></a>    self<span class="op">.</span>output<span class="op">:</span>setAndWrite<span class="op">(</span><span class="dv">0.0</span><span class="op">)</span></span>
+<span id="cb40-17"><a href="#cb40-17" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb40-18"><a href="#cb40-18" aria-hidden="true" tabindex="-1"></a>    <span class="cf">while</span> <span class="kw">true</span> <span class="cf">do</span></span>
+<span id="cb40-19"><a href="#cb40-19" aria-hidden="true" tabindex="-1"></a>        <span class="kw">local</span> sp <span class="op">=</span> self<span class="op">.</span>setpoint<span class="op">:</span>readAndGet<span class="op">()</span></span>
+<span id="cb40-20"><a href="#cb40-20" aria-hidden="true" tabindex="-1"></a>        <span class="kw">local</span> rb <span class="op">=</span> self<span class="op">.</span>readback<span class="op">:</span>readAndGet<span class="op">()</span></span>
+<span id="cb40-21"><a href="#cb40-21" aria-hidden="true" tabindex="-1"></a>        self<span class="op">.</span>output<span class="op">:</span>setAndWrite<span class="op">(</span>scale <span class="op">*</span> self<span class="op">.</span>gain <span class="op">*</span> <span class="op">(</span>sp <span class="op">-</span> rb<span class="op">))</span></span>
+<span id="cb40-22"><a href="#cb40-22" aria-hidden="true" tabindex="-1"></a>    <span class="cf">end</span></span>
+<span id="cb40-23"><a href="#cb40-23" aria-hidden="true" tabindex="-1"></a><span class="kw">end</span></span></code></pre></div>
+<p>The <em>closure</em> style (passing <code>mainLoop</code> as the third argument to <code>ApplicationModule</code>) is also supported for backward compatibility. File-scope locals — including accessor objects — are migrated into each module’s own Lua VM as upvalues automatically, so they are always available inside <code>mainLoop</code> regardless of which style you use.</p>
+<p><strong>Python equivalent</strong> — subclass <code>ac.ApplicationModule</code> and override <code>mainLoop</code>. Accessors are created in <code>__init__</code> and the instance is registered on <code>ac.app</code>:</p>
+<div class="sourceCode" id="cb41"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb41-1"><a href="#cb41-1" aria-hidden="true" tabindex="-1"></a><span class="co"># controller.py</span></span>
+<span id="cb41-2"><a href="#cb41-2" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> PyApplicationCore <span class="im">as</span> ac</span>
+<span id="cb41-3"><a href="#cb41-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb41-4"><a href="#cb41-4" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> Controller(ac.ApplicationModule):</span>
+<span id="cb41-5"><a href="#cb41-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb41-6"><a href="#cb41-6" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> <span class="fu">__init__</span>(<span class="va">self</span>, owner, name, description):</span>
+<span id="cb41-7"><a href="#cb41-7" aria-hidden="true" tabindex="-1"></a>        <span class="bu">super</span>().<span class="fu">__init__</span>(owner, name, description)</span>
+<span id="cb41-8"><a href="#cb41-8" aria-hidden="true" tabindex="-1"></a>        <span class="co"># Declare accessors in __init__ — they must exist before threads start</span></span>
+<span id="cb41-9"><a href="#cb41-9" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.setpoint <span class="op">=</span> ac.ScalarPollInput(ac.DataType.float32, <span class="va">self</span>, <span class="st">&quot;setpoint&quot;</span>, <span class="st">&quot;degC&quot;</span>, <span class="st">&quot;Setpoint&quot;</span>)</span>
+<span id="cb41-10"><a href="#cb41-10" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.readback <span class="op">=</span> ac.ScalarPushInput(ac.DataType.float32, <span class="va">self</span>, <span class="st">&quot;readback&quot;</span>, <span class="st">&quot;degC&quot;</span>, <span class="st">&quot;Actual temperature&quot;</span>)</span>
+<span id="cb41-11"><a href="#cb41-11" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.output   <span class="op">=</span> ac.ScalarOutput   (ac.DataType.float32, <span class="va">self</span>, <span class="st">&quot;output&quot;</span>,   <span class="st">&quot;mA&quot;</span>,   <span class="st">&quot;Heater current&quot;</span>)</span>
+<span id="cb41-12"><a href="#cb41-12" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.gain     <span class="op">=</span> ac.ScalarPollInput(ac.DataType.float32, <span class="va">self</span>, <span class="st">&quot;gain&quot;</span>,     <span class="st">&quot;&quot;</span>,     <span class="st">&quot;Control gain&quot;</span>)</span>
+<span id="cb41-13"><a href="#cb41-13" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb41-14"><a href="#cb41-14" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> mainLoop(<span class="va">self</span>):</span>
+<span id="cb41-15"><a href="#cb41-15" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.output.setAndWrite(<span class="fl">0.0</span>)   <span class="co"># publish initial value</span></span>
+<span id="cb41-16"><a href="#cb41-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb41-17"><a href="#cb41-17" aria-hidden="true" tabindex="-1"></a>        <span class="cf">while</span> <span class="va">True</span>:</span>
+<span id="cb41-18"><a href="#cb41-18" aria-hidden="true" tabindex="-1"></a>            sp <span class="op">=</span> <span class="va">self</span>.setpoint.readAndGet()</span>
+<span id="cb41-19"><a href="#cb41-19" aria-hidden="true" tabindex="-1"></a>            rb <span class="op">=</span> <span class="va">self</span>.readback.readAndGet()</span>
+<span id="cb41-20"><a href="#cb41-20" aria-hidden="true" tabindex="-1"></a>            <span class="va">self</span>.output.setAndWrite(<span class="va">self</span>.gain.get() <span class="op">*</span> (sp <span class="op">-</span> rb))</span>
+<span id="cb41-21"><a href="#cb41-21" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb41-22"><a href="#cb41-22" aria-hidden="true" tabindex="-1"></a><span class="co"># Register the module on the application object</span></span>
+<span id="cb41-23"><a href="#cb41-23" aria-hidden="true" tabindex="-1"></a>ac.app.controller <span class="op">=</span> Controller(ac.app, <span class="st">&quot;Controller&quot;</span>, <span class="st">&quot;Python PID controller&quot;</span>)</span></code></pre></div>
+<p>Key differences from Lua: - Accessors go in <code>__init__</code>, not after the function. - <code>self.gain.get()</code> is needed because <code>ScalarPollInput</code> does not block; calling <code>readAndGet()</code> on a poll input would also work. - The module is instantiated and attached to <code>ac.app</code> at module-import time (equivalent to the Lua <code>ApplicationModule(app, …)</code> call).</p>
+<h3 id="accessor-types-in-scripts">10.3 Accessor types in scripts</h3>
+<p><strong>Lua</strong> — preferred method-call style (module/group as <code>self</code>):</p>
+<div class="sourceCode" id="cb42"><pre class="sourceCode lua"><code class="sourceCode lua"><span id="cb42-1"><a href="#cb42-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- Scalars</span></span>
+<span id="cb42-2"><a href="#cb42-2" aria-hidden="true" tabindex="-1"></a>mod<span class="op">:</span>ScalarPushInput <span class="op">(</span><span class="cn">D</span>ataType<span class="op">.</span><span class="cn">T</span><span class="op">,</span> <span class="st">&quot;name&quot;</span><span class="op">,</span> <span class="st">&quot;unit&quot;</span><span class="op">,</span> <span class="st">&quot;desc&quot;</span><span class="op">)</span></span>
+<span id="cb42-3"><a href="#cb42-3" aria-hidden="true" tabindex="-1"></a>mod<span class="op">:</span>ScalarPollInput <span class="op">(</span><span class="cn">D</span>ataType<span class="op">.</span><span class="cn">T</span><span class="op">,</span> <span class="st">&quot;name&quot;</span><span class="op">,</span> <span class="st">&quot;unit&quot;</span><span class="op">,</span> <span class="st">&quot;desc&quot;</span><span class="op">)</span></span>
+<span id="cb42-4"><a href="#cb42-4" aria-hidden="true" tabindex="-1"></a>mod<span class="op">:</span>ScalarOutput    <span class="op">(</span><span class="cn">D</span>ataType<span class="op">.</span><span class="cn">T</span><span class="op">,</span> <span class="st">&quot;name&quot;</span><span class="op">,</span> <span class="st">&quot;unit&quot;</span><span class="op">,</span> <span class="st">&quot;desc&quot;</span><span class="op">)</span></span>
+<span id="cb42-5"><a href="#cb42-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb42-6"><a href="#cb42-6" aria-hidden="true" tabindex="-1"></a><span class="co">-- Arrays (add element count)</span></span>
+<span id="cb42-7"><a href="#cb42-7" aria-hidden="true" tabindex="-1"></a>mod<span class="op">:</span>ArrayPushInput  <span class="op">(</span><span class="cn">D</span>ataType<span class="op">.</span><span class="cn">T</span><span class="op">,</span> <span class="st">&quot;name&quot;</span><span class="op">,</span> <span class="st">&quot;unit&quot;</span><span class="op">,</span> <span class="cn">N</span><span class="op">,</span> <span class="st">&quot;desc&quot;</span><span class="op">)</span></span>
+<span id="cb42-8"><a href="#cb42-8" aria-hidden="true" tabindex="-1"></a>mod<span class="op">:</span>ArrayPollInput  <span class="op">(</span><span class="cn">D</span>ataType<span class="op">.</span><span class="cn">T</span><span class="op">,</span> <span class="st">&quot;name&quot;</span><span class="op">,</span> <span class="st">&quot;unit&quot;</span><span class="op">,</span> <span class="cn">N</span><span class="op">,</span> <span class="st">&quot;desc&quot;</span><span class="op">)</span></span>
+<span id="cb42-9"><a href="#cb42-9" aria-hidden="true" tabindex="-1"></a>mod<span class="op">:</span>ArrayOutput     <span class="op">(</span><span class="cn">D</span>ataType<span class="op">.</span><span class="cn">T</span><span class="op">,</span> <span class="st">&quot;name&quot;</span><span class="op">,</span> <span class="st">&quot;unit&quot;</span><span class="op">,</span> <span class="cn">N</span><span class="op">,</span> <span class="st">&quot;desc&quot;</span><span class="op">)</span></span>
+<span id="cb42-10"><a href="#cb42-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb42-11"><a href="#cb42-11" aria-hidden="true" tabindex="-1"></a><span class="co">-- Triggers (no data)</span></span>
+<span id="cb42-12"><a href="#cb42-12" aria-hidden="true" tabindex="-1"></a>mod<span class="op">:</span>VoidInput       <span class="op">(</span><span class="st">&quot;name&quot;</span><span class="op">,</span> <span class="st">&quot;desc&quot;</span><span class="op">)</span></span>
+<span id="cb42-13"><a href="#cb42-13" aria-hidden="true" tabindex="-1"></a>mod<span class="op">:</span>VoidOutput      <span class="op">(</span><span class="st">&quot;name&quot;</span><span class="op">,</span> <span class="st">&quot;desc&quot;</span><span class="op">)</span></span>
+<span id="cb42-14"><a href="#cb42-14" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb42-15"><a href="#cb42-15" aria-hidden="true" tabindex="-1"></a><span class="co">-- Status (integer with OK/</span><span class="al">WARNING</span><span class="co">/FAULT/OFF semantics)</span></span>
+<span id="cb42-16"><a href="#cb42-16" aria-hidden="true" tabindex="-1"></a>mod<span class="op">:</span>StatusOutput    <span class="op">(</span><span class="st">&quot;name&quot;</span><span class="op">,</span> <span class="st">&quot;desc&quot;</span><span class="op">)</span></span>
+<span id="cb42-17"><a href="#cb42-17" aria-hidden="true" tabindex="-1"></a>mod<span class="op">:</span>StatusPushInput <span class="op">(</span><span class="st">&quot;name&quot;</span><span class="op">,</span> <span class="st">&quot;desc&quot;</span><span class="op">)</span></span>
+<span id="cb42-18"><a href="#cb42-18" aria-hidden="true" tabindex="-1"></a>mod<span class="op">:</span>StatusPollInput <span class="op">(</span><span class="st">&quot;name&quot;</span><span class="op">,</span> <span class="st">&quot;desc&quot;</span><span class="op">)</span></span></code></pre></div>
+<p>The same methods are available on <code>VariableGroup</code> objects. The legacy free-function form (e.g., <code>ScalarPushInput(DataType.T, mod, "name", "unit", "desc")</code>) is still accepted.</p>
+<p><code>DataType</code> constants:</p>
+<div class="sourceCode" id="cb43"><pre class="sourceCode lua"><code class="sourceCode lua"><span id="cb43-1"><a href="#cb43-1" aria-hidden="true" tabindex="-1"></a><span class="cn">D</span>ataType<span class="op">.</span>int8    <span class="cn">D</span>ataType<span class="op">.</span>uint8</span>
+<span id="cb43-2"><a href="#cb43-2" aria-hidden="true" tabindex="-1"></a><span class="cn">D</span>ataType<span class="op">.</span>int16   <span class="cn">D</span>ataType<span class="op">.</span>uint16</span>
+<span id="cb43-3"><a href="#cb43-3" aria-hidden="true" tabindex="-1"></a><span class="cn">D</span>ataType<span class="op">.</span>int32   <span class="cn">D</span>ataType<span class="op">.</span>uint32</span>
+<span id="cb43-4"><a href="#cb43-4" aria-hidden="true" tabindex="-1"></a><span class="cn">D</span>ataType<span class="op">.</span>int64   <span class="cn">D</span>ataType<span class="op">.</span>uint64</span>
+<span id="cb43-5"><a href="#cb43-5" aria-hidden="true" tabindex="-1"></a><span class="cn">D</span>ataType<span class="op">.</span>float32 <span class="cn">D</span>ataType<span class="op">.</span>float64</span>
+<span id="cb43-6"><a href="#cb43-6" aria-hidden="true" tabindex="-1"></a><span class="cn">D</span>ataType<span class="op">.</span>string  <span class="cn">D</span>ataType<span class="op">.</span><span class="cn">B</span>oolean  <span class="cn">D</span>ataType<span class="op">.</span><span class="cn">V</span>oid</span></code></pre></div>
+<p><code>Status</code> constants (for status accessors):</p>
+<div class="sourceCode" id="cb44"><pre class="sourceCode lua"><code class="sourceCode lua"><span id="cb44-1"><a href="#cb44-1" aria-hidden="true" tabindex="-1"></a><span class="cn">S</span>tatus<span class="op">.</span><span class="cn">OK</span>   <span class="cn">S</span>tatus<span class="op">.</span><span class="cn">WARNING</span>   <span class="cn">S</span>tatus<span class="op">.</span><span class="cn">FAULT</span>   <span class="cn">S</span>tatus<span class="op">.</span><span class="cn">OFF</span></span></code></pre></div>
+<p>Scalar accessors also support arithmetic operators directly, so you can write expressions without calling <code>:get()</code>:</p>
+<div class="sourceCode" id="cb45"><pre class="sourceCode lua"><code class="sourceCode lua"><span id="cb45-1"><a href="#cb45-1" aria-hidden="true" tabindex="-1"></a>self<span class="op">.</span>sum<span class="op">:</span>setAndWrite<span class="op">(</span>self<span class="op">.</span>a <span class="op">+</span> self<span class="op">.</span>b<span class="op">)</span>          <span class="co">-- addition</span></span>
+<span id="cb45-2"><a href="#cb45-2" aria-hidden="true" tabindex="-1"></a>self<span class="op">.</span>out<span class="op">:</span>setAndWrite<span class="op">(</span>self<span class="op">.</span>input <span class="op">*</span> <span class="dv">2.5</span><span class="op">)</span>         <span class="co">-- mixed accessor/number</span></span>
+<span id="cb45-3"><a href="#cb45-3" aria-hidden="true" tabindex="-1"></a><span class="kw">local</span> clamped <span class="op">=</span> self<span class="op">.</span>value <span class="op">&lt;</span> self<span class="op">.</span>limit        <span class="co">-- comparison (returns boolean)</span></span></code></pre></div>
+<p><strong>Python equivalent</strong> — identical constructor signatures; the only difference is the <code>ac.</code> prefix and <code>ac.DataType.*</code>:</p>
+<div class="sourceCode" id="cb46"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb46-1"><a href="#cb46-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> PyApplicationCore <span class="im">as</span> ac</span>
+<span id="cb46-2"><a href="#cb46-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb46-3"><a href="#cb46-3" aria-hidden="true" tabindex="-1"></a><span class="co"># Scalars</span></span>
+<span id="cb46-4"><a href="#cb46-4" aria-hidden="true" tabindex="-1"></a>ac.ScalarPushInput (ac.DataType.T, module, <span class="st">&quot;name&quot;</span>, <span class="st">&quot;unit&quot;</span>, <span class="st">&quot;desc&quot;</span>)</span>
+<span id="cb46-5"><a href="#cb46-5" aria-hidden="true" tabindex="-1"></a>ac.ScalarPollInput (ac.DataType.T, module, <span class="st">&quot;name&quot;</span>, <span class="st">&quot;unit&quot;</span>, <span class="st">&quot;desc&quot;</span>)</span>
+<span id="cb46-6"><a href="#cb46-6" aria-hidden="true" tabindex="-1"></a>ac.ScalarOutput    (ac.DataType.T, module, <span class="st">&quot;name&quot;</span>, <span class="st">&quot;unit&quot;</span>, <span class="st">&quot;desc&quot;</span>)</span>
+<span id="cb46-7"><a href="#cb46-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb46-8"><a href="#cb46-8" aria-hidden="true" tabindex="-1"></a><span class="co"># Arrays (add element count)</span></span>
+<span id="cb46-9"><a href="#cb46-9" aria-hidden="true" tabindex="-1"></a>ac.ArrayPushInput  (ac.DataType.T, module, <span class="st">&quot;name&quot;</span>, <span class="st">&quot;unit&quot;</span>, N, <span class="st">&quot;desc&quot;</span>)</span>
+<span id="cb46-10"><a href="#cb46-10" aria-hidden="true" tabindex="-1"></a>ac.ArrayPollInput  (ac.DataType.T, module, <span class="st">&quot;name&quot;</span>, <span class="st">&quot;unit&quot;</span>, N, <span class="st">&quot;desc&quot;</span>)</span>
+<span id="cb46-11"><a href="#cb46-11" aria-hidden="true" tabindex="-1"></a>ac.ArrayOutput     (ac.DataType.T, module, <span class="st">&quot;name&quot;</span>, <span class="st">&quot;unit&quot;</span>, N, <span class="st">&quot;desc&quot;</span>)</span>
+<span id="cb46-12"><a href="#cb46-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb46-13"><a href="#cb46-13" aria-hidden="true" tabindex="-1"></a><span class="co"># Triggers (no data)</span></span>
+<span id="cb46-14"><a href="#cb46-14" aria-hidden="true" tabindex="-1"></a>ac.VoidInput       (module, <span class="st">&quot;name&quot;</span>, <span class="st">&quot;desc&quot;</span>)</span>
+<span id="cb46-15"><a href="#cb46-15" aria-hidden="true" tabindex="-1"></a>ac.VoidOutput      (module, <span class="st">&quot;name&quot;</span>, <span class="st">&quot;desc&quot;</span>)</span></code></pre></div>
+<p><code>DataType</code> constants (same names, <code>ac.DataType.</code> prefix):</p>
+<div class="sourceCode" id="cb47"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb47-1"><a href="#cb47-1" aria-hidden="true" tabindex="-1"></a>ac.DataType.int8    ac.DataType.uint8</span>
+<span id="cb47-2"><a href="#cb47-2" aria-hidden="true" tabindex="-1"></a>ac.DataType.int16   ac.DataType.uint16</span>
+<span id="cb47-3"><a href="#cb47-3" aria-hidden="true" tabindex="-1"></a>ac.DataType.int32   ac.DataType.uint32</span>
+<span id="cb47-4"><a href="#cb47-4" aria-hidden="true" tabindex="-1"></a>ac.DataType.int64   ac.DataType.uint64</span>
+<span id="cb47-5"><a href="#cb47-5" aria-hidden="true" tabindex="-1"></a>ac.DataType.float32 ac.DataType.float64</span>
+<span id="cb47-6"><a href="#cb47-6" aria-hidden="true" tabindex="-1"></a>ac.DataType.string  ac.DataType.Boolean  ac.DataType.Void</span></code></pre></div>
+<h3 id="array-operations-in-scripts">10.4 Array operations in scripts</h3>
+<p><strong>Lua</strong> — 1-based indexing, plain table iteration:</p>
+<div class="sourceCode" id="cb48"><pre class="sourceCode lua"><code class="sourceCode lua"><span id="cb48-1"><a href="#cb48-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- Length and indexing (1-based)</span></span>
+<span id="cb48-2"><a href="#cb48-2" aria-hidden="true" tabindex="-1"></a><span class="kw">local</span> n <span class="op">=</span> <span class="op">#</span>self<span class="op">.</span>array          <span class="co">-- number of elements</span></span>
+<span id="cb48-3"><a href="#cb48-3" aria-hidden="true" tabindex="-1"></a><span class="kw">local</span> v <span class="op">=</span> self<span class="op">.</span>array<span class="op">[</span><span class="dv">1</span><span class="op">]</span>        <span class="co">-- read element 1</span></span>
+<span id="cb48-4"><a href="#cb48-4" aria-hidden="true" tabindex="-1"></a>self<span class="op">.</span>array<span class="op">[</span><span class="dv">2</span><span class="op">]</span> <span class="op">=</span> <span class="dv">42</span>             <span class="co">-- write element 2 (modifies local buffer)</span></span>
+<span id="cb48-5"><a href="#cb48-5" aria-hidden="true" tabindex="-1"></a>self<span class="op">.</span>array<span class="op">:</span><span class="fu">write</span><span class="op">()</span>             <span class="co">-- push buffer to subscribers</span></span>
+<span id="cb48-6"><a href="#cb48-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb48-7"><a href="#cb48-7" aria-hidden="true" tabindex="-1"></a><span class="co">-- readAndGet() returns the array directly; iterate with pairs</span></span>
+<span id="cb48-8"><a href="#cb48-8" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> idx<span class="op">,</span> val <span class="kw">in</span> <span class="fu">pairs</span><span class="op">(</span>self<span class="op">.</span>array<span class="op">:</span>readAndGet<span class="op">())</span> <span class="cf">do</span></span>
+<span id="cb48-9"><a href="#cb48-9" aria-hidden="true" tabindex="-1"></a>    <span class="fu">print</span><span class="op">(</span>idx<span class="op">,</span> val<span class="op">)</span></span>
+<span id="cb48-10"><a href="#cb48-10" aria-hidden="true" tabindex="-1"></a><span class="cf">end</span></span>
+<span id="cb48-11"><a href="#cb48-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb48-12"><a href="#cb48-12" aria-hidden="true" tabindex="-1"></a><span class="co">-- or with a numeric for</span></span>
+<span id="cb48-13"><a href="#cb48-13" aria-hidden="true" tabindex="-1"></a>self<span class="op">.</span>array<span class="op">:</span><span class="fu">read</span><span class="op">()</span></span>
+<span id="cb48-14"><a href="#cb48-14" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> i <span class="op">=</span> <span class="dv">1</span><span class="op">,</span> <span class="op">#</span>self<span class="op">.</span>array <span class="cf">do</span></span>
+<span id="cb48-15"><a href="#cb48-15" aria-hidden="true" tabindex="-1"></a>    self<span class="op">.</span>out<span class="op">[</span>i<span class="op">]</span> <span class="op">=</span> self<span class="op">.</span>array<span class="op">[</span>i<span class="op">]</span> <span class="op">*</span> <span class="dv">2</span></span>
+<span id="cb48-16"><a href="#cb48-16" aria-hidden="true" tabindex="-1"></a><span class="cf">end</span></span>
+<span id="cb48-17"><a href="#cb48-17" aria-hidden="true" tabindex="-1"></a>self<span class="op">.</span>out<span class="op">:</span><span class="fu">write</span><span class="op">()</span></span></code></pre></div>
+<p><strong>Python equivalent</strong> — array accessors expose the <strong>numpy buffer protocol</strong>, so they behave like numpy arrays (0-based, vectorised operations, <code>shape</code>, etc.):</p>
+<div class="sourceCode" id="cb49"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb49-1"><a href="#cb49-1" aria-hidden="true" tabindex="-1"></a><span class="co"># Length and indexing (0-based)</span></span>
+<span id="cb49-2"><a href="#cb49-2" aria-hidden="true" tabindex="-1"></a>n <span class="op">=</span> <span class="bu">len</span>(<span class="va">self</span>.array)            <span class="co"># number of elements</span></span>
+<span id="cb49-3"><a href="#cb49-3" aria-hidden="true" tabindex="-1"></a>v <span class="op">=</span> <span class="va">self</span>.array[<span class="dv">0</span>]              <span class="co"># read element 0</span></span>
+<span id="cb49-4"><a href="#cb49-4" aria-hidden="true" tabindex="-1"></a><span class="va">self</span>.array[<span class="dv">1</span>] <span class="op">=</span> <span class="dv">42</span>             <span class="co"># write element 1 (modifies local buffer)</span></span>
+<span id="cb49-5"><a href="#cb49-5" aria-hidden="true" tabindex="-1"></a><span class="va">self</span>.array.write()             <span class="co"># push buffer to subscribers</span></span>
+<span id="cb49-6"><a href="#cb49-6" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb49-7"><a href="#cb49-7" aria-hidden="true" tabindex="-1"></a><span class="co"># readAndGet() returns the array as a numpy view; iterate normally</span></span>
+<span id="cb49-8"><a href="#cb49-8" aria-hidden="true" tabindex="-1"></a><span class="cf">for</span> val <span class="kw">in</span> <span class="va">self</span>.array.readAndGet():</span>
+<span id="cb49-9"><a href="#cb49-9" aria-hidden="true" tabindex="-1"></a>    <span class="bu">print</span>(val)</span>
+<span id="cb49-10"><a href="#cb49-10" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb49-11"><a href="#cb49-11" aria-hidden="true" tabindex="-1"></a><span class="co"># vectorised operations (no explicit loop needed)</span></span>
+<span id="cb49-12"><a href="#cb49-12" aria-hidden="true" tabindex="-1"></a><span class="va">self</span>.array.read()</span>
+<span id="cb49-13"><a href="#cb49-13" aria-hidden="true" tabindex="-1"></a><span class="va">self</span>.out.<span class="bu">set</span>(<span class="va">self</span>.array.get() <span class="op">*</span> <span class="dv">2</span>)   <span class="co"># element-wise multiply via numpy</span></span>
+<span id="cb49-14"><a href="#cb49-14" aria-hidden="true" tabindex="-1"></a><span class="va">self</span>.out.write()</span>
+<span id="cb49-15"><a href="#cb49-15" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb49-16"><a href="#cb49-16" aria-hidden="true" tabindex="-1"></a><span class="co"># or use numpy directly</span></span>
+<span id="cb49-17"><a href="#cb49-17" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> numpy <span class="im">as</span> np</span>
+<span id="cb49-18"><a href="#cb49-18" aria-hidden="true" tabindex="-1"></a><span class="va">self</span>.out.setAndWrite(np.array(<span class="va">self</span>.array) <span class="op">*</span> <span class="dv">2</span>)</span></code></pre></div>
+<h3 id="reading-config-values-from-scripts">10.5 Reading config values from scripts</h3>
+<p><strong>Lua</strong> — the preferred API uses the global <code>xmlConfig</code> table; the type is inferred from the Lua default value:</p>
+<div class="sourceCode" id="cb50"><pre class="sourceCode lua"><code class="sourceCode lua"><span id="cb50-1"><a href="#cb50-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- Type inferred from default: number → float64, string → string, boolean → Boolean</span></span>
+<span id="cb50-2"><a href="#cb50-2" aria-hidden="true" tabindex="-1"></a><span class="kw">local</span> gain    <span class="op">=</span> xmlConfig<span class="op">.</span>get<span class="op">(</span><span class="st">&quot;gain&quot;</span><span class="op">,</span> <span class="dv">1.0</span><span class="op">)</span>             <span class="co">-- float64</span></span>
+<span id="cb50-3"><a href="#cb50-3" aria-hidden="true" tabindex="-1"></a><span class="kw">local</span> label   <span class="op">=</span> xmlConfig<span class="op">.</span>get<span class="op">(</span><span class="st">&quot;label&quot;</span><span class="op">,</span> <span class="st">&quot;default&quot;</span><span class="op">)</span>      <span class="co">-- string</span></span>
+<span id="cb50-4"><a href="#cb50-4" aria-hidden="true" tabindex="-1"></a><span class="kw">local</span> enabled <span class="op">=</span> xmlConfig<span class="op">.</span>get<span class="op">(</span><span class="st">&quot;enabled&quot;</span><span class="op">,</span> <span class="kw">true</span><span class="op">)</span>         <span class="co">-- Boolean</span></span>
+<span id="cb50-5"><a href="#cb50-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb50-6"><a href="#cb50-6" aria-hidden="true" tabindex="-1"></a><span class="co">-- Array: type inferred from first element of the default table</span></span>
+<span id="cb50-7"><a href="#cb50-7" aria-hidden="true" tabindex="-1"></a><span class="kw">local</span> lut     <span class="op">=</span> xmlConfig<span class="op">.</span>getArray<span class="op">(</span><span class="st">&quot;lookupTable&quot;</span><span class="op">)</span>      <span class="co">-- table of numbers (no default)</span></span>
+<span id="cb50-8"><a href="#cb50-8" aria-hidden="true" tabindex="-1"></a><span class="kw">local</span> flags   <span class="op">=</span> xmlConfig<span class="op">.</span>getArray<span class="op">(</span><span class="st">&quot;flags&quot;</span><span class="op">,</span> <span class="op">{</span><span class="kw">false</span><span class="op">})</span>   <span class="co">-- table of booleans</span></span>
+<span id="cb50-9"><a href="#cb50-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb50-10"><a href="#cb50-10" aria-hidden="true" tabindex="-1"></a><span class="co">-- Sub-module names (for dynamic channel creation)</span></span>
+<span id="cb50-11"><a href="#cb50-11" aria-hidden="true" tabindex="-1"></a><span class="kw">local</span> modules <span class="op">=</span> xmlConfig<span class="op">.</span>getModules<span class="op">(</span><span class="st">&quot;Sensors&quot;</span><span class="op">)</span></span>
+<span id="cb50-12"><a href="#cb50-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb50-13"><a href="#cb50-13" aria-hidden="true" tabindex="-1"></a><span class="co">-- Paths are relative to the config root (same as appConfig)</span></span>
+<span id="cb50-14"><a href="#cb50-14" aria-hidden="true" tabindex="-1"></a><span class="kw">local</span> freq <span class="op">=</span> xmlConfig<span class="op">.</span>get<span class="op">(</span><span class="st">&quot;Controller/sampleFreq&quot;</span><span class="op">,</span> <span class="dv">100.0</span><span class="op">)</span></span></code></pre></div>
+<p>The legacy <code>appConfig()</code> form is still available for scripts that need to pass an explicit <code>DataType</code>:</p>
+<div class="sourceCode" id="cb51"><pre class="sourceCode lua"><code class="sourceCode lua"><span id="cb51-1"><a href="#cb51-1" aria-hidden="true" tabindex="-1"></a><span class="kw">local</span> cfg <span class="op">=</span> appConfig<span class="op">()</span></span>
+<span id="cb51-2"><a href="#cb51-2" aria-hidden="true" tabindex="-1"></a><span class="kw">local</span> gain    <span class="op">=</span> cfg<span class="op">:</span>get<span class="op">(</span><span class="cn">D</span>ataType<span class="op">.</span>float64<span class="op">,</span> <span class="st">&quot;gain&quot;</span><span class="op">)</span></span>
+<span id="cb51-3"><a href="#cb51-3" aria-hidden="true" tabindex="-1"></a><span class="kw">local</span> label   <span class="op">=</span> cfg<span class="op">:</span>get<span class="op">(</span><span class="cn">D</span>ataType<span class="op">.</span>string<span class="op">,</span>  <span class="st">&quot;label&quot;</span><span class="op">,</span> <span class="st">&quot;default&quot;</span><span class="op">)</span></span>
+<span id="cb51-4"><a href="#cb51-4" aria-hidden="true" tabindex="-1"></a><span class="kw">local</span> table   <span class="op">=</span> cfg<span class="op">:</span>getArray<span class="op">(</span><span class="cn">D</span>ataType<span class="op">.</span>float64<span class="op">,</span> <span class="st">&quot;lookupTable&quot;</span><span class="op">)</span></span>
+<span id="cb51-5"><a href="#cb51-5" aria-hidden="true" tabindex="-1"></a><span class="kw">local</span> modules <span class="op">=</span> cfg<span class="op">:</span>getModules<span class="op">(</span><span class="st">&quot;Sensors&quot;</span><span class="op">)</span></span></code></pre></div>
+<p><strong>Python equivalent</strong> — identical API; call <code>self.appConfig()</code> inside a module, or the global <code>ac.appConfig()</code> at script level:</p>
+<div class="sourceCode" id="cb52"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb52-1"><a href="#cb52-1" aria-hidden="true" tabindex="-1"></a><span class="co"># inside mainLoop or __init__:</span></span>
+<span id="cb52-2"><a href="#cb52-2" aria-hidden="true" tabindex="-1"></a>cfg <span class="op">=</span> <span class="va">self</span>.appConfig()</span>
+<span id="cb52-3"><a href="#cb52-3" aria-hidden="true" tabindex="-1"></a>gain    <span class="op">=</span> cfg.get(ac.DataType.float64, <span class="st">&quot;gain&quot;</span>)</span>
+<span id="cb52-4"><a href="#cb52-4" aria-hidden="true" tabindex="-1"></a>label   <span class="op">=</span> cfg.get(ac.DataType.string,  <span class="st">&quot;label&quot;</span>, <span class="st">&quot;default&quot;</span>)   <span class="co"># third arg = default</span></span>
+<span id="cb52-5"><a href="#cb52-5" aria-hidden="true" tabindex="-1"></a>table   <span class="op">=</span> cfg.getArray(ac.DataType.float64, <span class="st">&quot;lookupTable&quot;</span>)</span>
+<span id="cb52-6"><a href="#cb52-6" aria-hidden="true" tabindex="-1"></a>modules <span class="op">=</span> cfg.getModules(<span class="st">&quot;Sensors&quot;</span>)</span>
+<span id="cb52-7"><a href="#cb52-7" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb52-8"><a href="#cb52-8" aria-hidden="true" tabindex="-1"></a><span class="co"># at script (module-import) level:</span></span>
+<span id="cb52-9"><a href="#cb52-9" aria-hidden="true" tabindex="-1"></a>cfg <span class="op">=</span> ac.appConfig()</span>
+<span id="cb52-10"><a href="#cb52-10" aria-hidden="true" tabindex="-1"></a>n_tickers <span class="op">=</span> cfg.get(ac.DataType.uint32, <span class="st">&quot;numberOfTickers&quot;</span>, <span class="dv">0</span>)</span></code></pre></div>
+<h3 id="using-variablegroups-and-modulegroups-from-scripts">10.6 Using VariableGroups and ModuleGroups from scripts</h3>
+<p><strong>Lua:</strong></p>
+<div class="sourceCode" id="cb53"><pre class="sourceCode lua"><code class="sourceCode lua"><span id="cb53-1"><a href="#cb53-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- ModuleGroup can be created without an explicit owner (attaches to app root)</span></span>
+<span id="cb53-2"><a href="#cb53-2" aria-hidden="true" tabindex="-1"></a><span class="kw">local</span> group <span class="op">=</span> ModuleGroup<span class="op">(</span><span class="st">&quot;Sensors&quot;</span><span class="op">,</span> <span class="st">&quot;Sensor group&quot;</span><span class="op">)</span></span>
+<span id="cb53-3"><a href="#cb53-3" aria-hidden="true" tabindex="-1"></a><span class="kw">local</span> mod   <span class="op">=</span> ApplicationModule<span class="op">(</span>group<span class="op">,</span> <span class="st">&quot;Processor&quot;</span><span class="op">,</span> <span class="st">&quot;Processes sensor data&quot;</span><span class="op">)</span></span>
+<span id="cb53-4"><a href="#cb53-4" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb53-5"><a href="#cb53-5" aria-hidden="true" tabindex="-1"></a><span class="co">-- VariableGroup for hierarchical variable naming</span></span>
+<span id="cb53-6"><a href="#cb53-6" aria-hidden="true" tabindex="-1"></a><span class="kw">local</span> vg <span class="op">=</span> VariableGroup<span class="op">(</span>mod<span class="op">,</span> <span class="st">&quot;Gains&quot;</span><span class="op">,</span> <span class="st">&quot;PID gain inputs&quot;</span><span class="op">)</span></span>
+<span id="cb53-7"><a href="#cb53-7" aria-hidden="true" tabindex="-1"></a>mod<span class="op">.</span>kP <span class="op">=</span> vg<span class="op">:</span>ScalarPollInput<span class="op">(</span><span class="cn">D</span>ataType<span class="op">.</span>float32<span class="op">,</span> <span class="st">&quot;kP&quot;</span><span class="op">,</span> <span class="st">&quot;&quot;</span><span class="op">,</span> <span class="st">&quot;Proportional gain&quot;</span><span class="op">)</span></span>
+<span id="cb53-8"><a href="#cb53-8" aria-hidden="true" tabindex="-1"></a>mod<span class="op">.</span>kI <span class="op">=</span> vg<span class="op">:</span>ScalarPollInput<span class="op">(</span><span class="cn">D</span>ataType<span class="op">.</span>float32<span class="op">,</span> <span class="st">&quot;kI&quot;</span><span class="op">,</span> <span class="st">&quot;&quot;</span><span class="op">,</span> <span class="st">&quot;Integral gain&quot;</span><span class="op">)</span></span>
+<span id="cb53-9"><a href="#cb53-9" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb53-10"><a href="#cb53-10" aria-hidden="true" tabindex="-1"></a>mod<span class="op">.</span>raw       <span class="op">=</span> mod<span class="op">:</span>ScalarPushInput<span class="op">(</span><span class="cn">D</span>ataType<span class="op">.</span>float32<span class="op">,</span> <span class="st">&quot;raw&quot;</span><span class="op">,</span>       <span class="st">&quot;V&quot;</span><span class="op">,</span> <span class="st">&quot;Raw signal&quot;</span><span class="op">)</span></span>
+<span id="cb53-11"><a href="#cb53-11" aria-hidden="true" tabindex="-1"></a>mod<span class="op">.</span>processed <span class="op">=</span> mod<span class="op">:</span>ScalarOutput   <span class="op">(</span><span class="cn">D</span>ataType<span class="op">.</span>float32<span class="op">,</span> <span class="st">&quot;processed&quot;</span><span class="op">,</span> <span class="st">&quot;V&quot;</span><span class="op">,</span> <span class="st">&quot;Scaled signal&quot;</span><span class="op">)</span></span>
+<span id="cb53-12"><a href="#cb53-12" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb53-13"><a href="#cb53-13" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> mod<span class="op">:</span>mainLoop<span class="op">()</span></span>
+<span id="cb53-14"><a href="#cb53-14" aria-hidden="true" tabindex="-1"></a>    <span class="cf">while</span> <span class="kw">true</span> <span class="cf">do</span></span>
+<span id="cb53-15"><a href="#cb53-15" aria-hidden="true" tabindex="-1"></a>        self<span class="op">.</span>raw<span class="op">:</span><span class="fu">read</span><span class="op">()</span></span>
+<span id="cb53-16"><a href="#cb53-16" aria-hidden="true" tabindex="-1"></a>        self<span class="op">.</span>processed<span class="op">:</span>setAndWrite<span class="op">(</span>self<span class="op">.</span>raw <span class="op">+</span> <span class="dv">0.0</span><span class="op">)</span></span>
+<span id="cb53-17"><a href="#cb53-17" aria-hidden="true" tabindex="-1"></a>    <span class="cf">end</span></span>
+<span id="cb53-18"><a href="#cb53-18" aria-hidden="true" tabindex="-1"></a><span class="kw">end</span></span></code></pre></div>
+<p><strong>Python equivalent</strong> — <code>ModuleGroup</code> is used as an owner; <code>VariableGroup</code> can be subclassed or used with dynamic attribute assignment:</p>
+<div class="sourceCode" id="cb54"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb54-1"><a href="#cb54-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> PyApplicationCore <span class="im">as</span> ac</span>
+<span id="cb54-2"><a href="#cb54-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb54-3"><a href="#cb54-3" aria-hidden="true" tabindex="-1"></a><span class="co"># --- ModuleGroup ---</span></span>
+<span id="cb54-4"><a href="#cb54-4" aria-hidden="true" tabindex="-1"></a>sensors <span class="op">=</span> ac.ModuleGroup(ac.app, <span class="st">&quot;Sensors&quot;</span>, <span class="st">&quot;Sensor group&quot;</span>)</span>
+<span id="cb54-5"><a href="#cb54-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb54-6"><a href="#cb54-6" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> Processor(ac.ApplicationModule):</span>
+<span id="cb54-7"><a href="#cb54-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> <span class="fu">__init__</span>(<span class="va">self</span>, owner, name, description):</span>
+<span id="cb54-8"><a href="#cb54-8" aria-hidden="true" tabindex="-1"></a>        <span class="bu">super</span>().<span class="fu">__init__</span>(owner, name, description)</span>
+<span id="cb54-9"><a href="#cb54-9" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.raw       <span class="op">=</span> ac.ScalarPushInput(ac.DataType.float32, <span class="va">self</span>, <span class="st">&quot;raw&quot;</span>,       <span class="st">&quot;V&quot;</span>, <span class="st">&quot;Raw signal&quot;</span>)</span>
+<span id="cb54-10"><a href="#cb54-10" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.processed <span class="op">=</span> ac.ScalarOutput   (ac.DataType.float32, <span class="va">self</span>, <span class="st">&quot;processed&quot;</span>, <span class="st">&quot;V&quot;</span>, <span class="st">&quot;Scaled signal&quot;</span>)</span>
+<span id="cb54-11"><a href="#cb54-11" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb54-12"><a href="#cb54-12" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> mainLoop(<span class="va">self</span>):</span>
+<span id="cb54-13"><a href="#cb54-13" aria-hidden="true" tabindex="-1"></a>        <span class="cf">while</span> <span class="va">True</span>:</span>
+<span id="cb54-14"><a href="#cb54-14" aria-hidden="true" tabindex="-1"></a>            <span class="va">self</span>.raw.read()</span>
+<span id="cb54-15"><a href="#cb54-15" aria-hidden="true" tabindex="-1"></a>            <span class="va">self</span>.processed.setAndWrite(<span class="va">self</span>.raw.get() <span class="op">*</span> <span class="dv">2</span>)</span>
+<span id="cb54-16"><a href="#cb54-16" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb54-17"><a href="#cb54-17" aria-hidden="true" tabindex="-1"></a>ac.app.sensors.processor <span class="op">=</span> Processor(sensors, <span class="st">&quot;Processor&quot;</span>, <span class="st">&quot;Processes sensor data&quot;</span>)</span>
+<span id="cb54-18"><a href="#cb54-18" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb54-19"><a href="#cb54-19" aria-hidden="true" tabindex="-1"></a><span class="co"># --- VariableGroup (dynamic attributes) ---</span></span>
+<span id="cb54-20"><a href="#cb54-20" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> MyMod(ac.ApplicationModule):</span>
+<span id="cb54-21"><a href="#cb54-21" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> <span class="fu">__init__</span>(<span class="va">self</span>, owner, name, description):</span>
+<span id="cb54-22"><a href="#cb54-22" aria-hidden="true" tabindex="-1"></a>        <span class="bu">super</span>().<span class="fu">__init__</span>(owner, name, description)</span>
+<span id="cb54-23"><a href="#cb54-23" aria-hidden="true" tabindex="-1"></a>        <span class="co"># inline VariableGroup using dynamic attribute assignment</span></span>
+<span id="cb54-24"><a href="#cb54-24" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.gains <span class="op">=</span> ac.VariableGroup(<span class="va">self</span>, <span class="st">&quot;Gains&quot;</span>, <span class="st">&quot;PID gains&quot;</span>)</span>
+<span id="cb54-25"><a href="#cb54-25" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.gains.kP <span class="op">=</span> ac.ScalarPollInput(ac.DataType.float32, <span class="va">self</span>.gains, <span class="st">&quot;kP&quot;</span>, <span class="st">&quot;&quot;</span>, <span class="st">&quot;Proportional gain&quot;</span>)</span>
+<span id="cb54-26"><a href="#cb54-26" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.gains.kI <span class="op">=</span> ac.ScalarPollInput(ac.DataType.float32, <span class="va">self</span>.gains, <span class="st">&quot;kI&quot;</span>, <span class="st">&quot;&quot;</span>, <span class="st">&quot;Integral gain&quot;</span>)</span>
+<span id="cb54-27"><a href="#cb54-27" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.output   <span class="op">=</span> ac.ScalarOutput   (ac.DataType.float32, <span class="va">self</span>, <span class="st">&quot;output&quot;</span>, <span class="st">&quot;&quot;</span>, <span class="st">&quot;Control output&quot;</span>)</span>
+<span id="cb54-28"><a href="#cb54-28" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb54-29"><a href="#cb54-29" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> mainLoop(<span class="va">self</span>):</span>
+<span id="cb54-30"><a href="#cb54-30" aria-hidden="true" tabindex="-1"></a>        <span class="cf">while</span> <span class="va">True</span>:</span>
+<span id="cb54-31"><a href="#cb54-31" aria-hidden="true" tabindex="-1"></a>            <span class="va">self</span>.output.setAndWrite(<span class="va">self</span>.gains.kP.get())   <span class="co"># simplified</span></span>
+<span id="cb54-32"><a href="#cb54-32" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb54-33"><a href="#cb54-33" aria-hidden="true" tabindex="-1"></a><span class="co"># --- VariableGroup (subclassed) ---</span></span>
+<span id="cb54-34"><a href="#cb54-34" aria-hidden="true" tabindex="-1"></a><span class="kw">class</span> MyMod2(ac.ApplicationModule):</span>
+<span id="cb54-35"><a href="#cb54-35" aria-hidden="true" tabindex="-1"></a>    <span class="kw">class</span> Gains(ac.VariableGroup):</span>
+<span id="cb54-36"><a href="#cb54-36" aria-hidden="true" tabindex="-1"></a>        <span class="kw">def</span> <span class="fu">__init__</span>(<span class="va">self</span>, owner, name, description):</span>
+<span id="cb54-37"><a href="#cb54-37" aria-hidden="true" tabindex="-1"></a>            <span class="bu">super</span>().<span class="fu">__init__</span>(owner, name, description)</span>
+<span id="cb54-38"><a href="#cb54-38" aria-hidden="true" tabindex="-1"></a>            <span class="va">self</span>.kP <span class="op">=</span> ac.ScalarPollInput(ac.DataType.float32, <span class="va">self</span>, <span class="st">&quot;kP&quot;</span>, <span class="st">&quot;&quot;</span>, <span class="st">&quot;Proportional gain&quot;</span>)</span>
+<span id="cb54-39"><a href="#cb54-39" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb54-40"><a href="#cb54-40" aria-hidden="true" tabindex="-1"></a>    <span class="kw">def</span> <span class="fu">__init__</span>(<span class="va">self</span>, owner, name, description):</span>
+<span id="cb54-41"><a href="#cb54-41" aria-hidden="true" tabindex="-1"></a>        <span class="bu">super</span>().<span class="fu">__init__</span>(owner, name, description)</span>
+<span id="cb54-42"><a href="#cb54-42" aria-hidden="true" tabindex="-1"></a>        <span class="va">self</span>.gains <span class="op">=</span> MyMod2.Gains(<span class="va">self</span>, <span class="st">&quot;Gains&quot;</span>, <span class="st">&quot;PID gains&quot;</span>)</span></code></pre></div>
+<h3 id="interrupting-a-blocked-read-from-scripts">10.7 Interrupting a blocked read from scripts</h3>
+<p><strong>Lua</strong> — <code>ReadAnyGroup</code> exposes an <code>interrupt()</code> method with the same semantics as the C++ version (see §4.7). When it fires, the Lua binding re-raises the interrupt as the string <code>"ChimeraTK::ThreadInterrupted"</code>. The C++ wrapper recognises this and exits cleanly, so no extra code is needed in the normal case.</p>
+<p>If you call <code>interrupt()</code> yourself and need to distinguish it from a real error, use <code>pcall</code>:</p>
+<div class="sourceCode" id="cb55"><pre class="sourceCode lua"><code class="sourceCode lua"><span id="cb55-1"><a href="#cb55-1" aria-hidden="true" tabindex="-1"></a><span class="kw">local</span> group <span class="op">=</span> ReadAnyGroup<span class="op">()</span></span>
+<span id="cb55-2"><a href="#cb55-2" aria-hidden="true" tabindex="-1"></a>group<span class="op">:</span>add<span class="op">(</span>self<span class="op">.</span>input1<span class="op">)</span></span>
+<span id="cb55-3"><a href="#cb55-3" aria-hidden="true" tabindex="-1"></a>group<span class="op">:</span>add<span class="op">(</span>self<span class="op">.</span>input2<span class="op">)</span></span>
+<span id="cb55-4"><a href="#cb55-4" aria-hidden="true" tabindex="-1"></a>group<span class="op">:</span>finalise<span class="op">()</span></span>
+<span id="cb55-5"><a href="#cb55-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb55-6"><a href="#cb55-6" aria-hidden="true" tabindex="-1"></a><span class="cf">while</span> <span class="kw">true</span> <span class="cf">do</span></span>
+<span id="cb55-7"><a href="#cb55-7" aria-hidden="true" tabindex="-1"></a>    <span class="kw">local</span> ok<span class="op">,</span> id <span class="op">=</span> <span class="fu">pcall</span><span class="op">(</span><span class="kw">function</span><span class="op">()</span> <span class="cf">return</span> group<span class="op">:</span>readAny<span class="op">()</span> <span class="kw">end</span><span class="op">)</span></span>
+<span id="cb55-8"><a href="#cb55-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">if</span> <span class="kw">not</span> ok <span class="cf">then</span></span>
+<span id="cb55-9"><a href="#cb55-9" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> <span class="fu">type</span><span class="op">(</span>id<span class="op">)</span> <span class="op">==</span> <span class="st">&quot;string&quot;</span> <span class="kw">and</span> id<span class="op">:</span><span class="fu">find</span><span class="op">(</span><span class="st">&quot;ChimeraTK::ThreadInterrupted&quot;</span><span class="op">)</span> <span class="cf">then</span></span>
+<span id="cb55-10"><a href="#cb55-10" aria-hidden="true" tabindex="-1"></a>            <span class="cf">return</span>   <span class="co">-- clean shutdown; let the framework take over</span></span>
+<span id="cb55-11"><a href="#cb55-11" aria-hidden="true" tabindex="-1"></a>        <span class="cf">end</span></span>
+<span id="cb55-12"><a href="#cb55-12" aria-hidden="true" tabindex="-1"></a>        <span class="fu">error</span><span class="op">(</span>id<span class="op">)</span>    <span class="co">-- unexpected error: propagate</span></span>
+<span id="cb55-13"><a href="#cb55-13" aria-hidden="true" tabindex="-1"></a>    <span class="cf">end</span></span>
+<span id="cb55-14"><a href="#cb55-14" aria-hidden="true" tabindex="-1"></a>    <span class="co">-- normal processing …</span></span>
+<span id="cb55-15"><a href="#cb55-15" aria-hidden="true" tabindex="-1"></a><span class="cf">end</span></span></code></pre></div>
+<p>If you do not use <code>pcall</code>, the exception propagates automatically and the module exits cleanly — no extra code needed.</p>
+<p><strong>Python equivalent</strong> — the interrupt surfaces as a <code>ThreadInterrupted</code> exception (a real Python exception class, not a string). The framework’s <code>mainLoopWrapper</code> catches it automatically, so in the common case your <code>mainLoop</code> requires no special handling.</p>
+<p>If you call <code>interrupt()</code> yourself and need to handle it explicitly:</p>
+<div class="sourceCode" id="cb56"><pre class="sourceCode python"><code class="sourceCode python"><span id="cb56-1"><a href="#cb56-1" aria-hidden="true" tabindex="-1"></a><span class="im">import</span> PyApplicationCore <span class="im">as</span> ac</span>
+<span id="cb56-2"><a href="#cb56-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb56-3"><a href="#cb56-3" aria-hidden="true" tabindex="-1"></a><span class="kw">def</span> mainLoop(<span class="va">self</span>):</span>
+<span id="cb56-4"><a href="#cb56-4" aria-hidden="true" tabindex="-1"></a>    group <span class="op">=</span> ac.ReadAnyGroup()</span>
+<span id="cb56-5"><a href="#cb56-5" aria-hidden="true" tabindex="-1"></a>    group.add(<span class="va">self</span>.input1)</span>
+<span id="cb56-6"><a href="#cb56-6" aria-hidden="true" tabindex="-1"></a>    group.add(<span class="va">self</span>.input2)</span>
+<span id="cb56-7"><a href="#cb56-7" aria-hidden="true" tabindex="-1"></a>    group.finalise()</span>
+<span id="cb56-8"><a href="#cb56-8" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb56-9"><a href="#cb56-9" aria-hidden="true" tabindex="-1"></a>    <span class="cf">while</span> <span class="va">True</span>:</span>
+<span id="cb56-10"><a href="#cb56-10" aria-hidden="true" tabindex="-1"></a>        <span class="cf">try</span>:</span>
+<span id="cb56-11"><a href="#cb56-11" aria-hidden="true" tabindex="-1"></a>            <span class="bu">id</span> <span class="op">=</span> group.readAny()</span>
+<span id="cb56-12"><a href="#cb56-12" aria-hidden="true" tabindex="-1"></a>        <span class="cf">except</span> ThreadInterrupted:</span>
+<span id="cb56-13"><a href="#cb56-13" aria-hidden="true" tabindex="-1"></a>            <span class="cf">return</span>   <span class="co"># clean shutdown; let the framework take over</span></span>
+<span id="cb56-14"><a href="#cb56-14" aria-hidden="true" tabindex="-1"></a>        <span class="co"># normal processing …</span></span></code></pre></div>
+<p><code>ThreadInterrupted</code> is registered in the <code>__main__</code> namespace by the framework at startup, so it is always available without an import.</p>
+<h3 id="status-accessors-aggregation-and-monitors-lua">10.8 Status accessors, aggregation, and monitors (Lua)</h3>
+<p>Status accessors carry a four-level severity (<code>OFF</code>, <code>OK</code>, <code>WARNING</code>, <code>FAULT</code>) and integrate with ApplicationCore’s status-propagation infrastructure.</p>
+<div class="sourceCode" id="cb57"><pre class="sourceCode lua"><code class="sourceCode lua"><span id="cb57-1"><a href="#cb57-1" aria-hidden="true" tabindex="-1"></a><span class="kw">local</span> mod <span class="op">=</span> ApplicationModule<span class="op">(</span>app<span class="op">,</span> <span class="st">&quot;Controller&quot;</span><span class="op">,</span> <span class="st">&quot;PID controller&quot;</span><span class="op">)</span></span>
+<span id="cb57-2"><a href="#cb57-2" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb57-3"><a href="#cb57-3" aria-hidden="true" tabindex="-1"></a><span class="co">-- Output publishes the module&#39;s health</span></span>
+<span id="cb57-4"><a href="#cb57-4" aria-hidden="true" tabindex="-1"></a>mod<span class="op">.</span>status <span class="op">=</span> mod<span class="op">:</span>StatusOutput<span class="op">(</span><span class="st">&quot;status&quot;</span><span class="op">,</span> <span class="st">&quot;Controller health&quot;</span><span class="op">)</span></span>
+<span id="cb57-5"><a href="#cb57-5" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb57-6"><a href="#cb57-6" aria-hidden="true" tabindex="-1"></a><span class="kw">function</span> mod<span class="op">:</span>mainLoop<span class="op">()</span></span>
+<span id="cb57-7"><a href="#cb57-7" aria-hidden="true" tabindex="-1"></a>    self<span class="op">.</span>status<span class="op">:</span>setAndWrite<span class="op">(</span><span class="cn">S</span>tatus<span class="op">.</span><span class="cn">OK</span><span class="op">)</span></span>
+<span id="cb57-8"><a href="#cb57-8" aria-hidden="true" tabindex="-1"></a>    <span class="cf">while</span> <span class="kw">true</span> <span class="cf">do</span></span>
+<span id="cb57-9"><a href="#cb57-9" aria-hidden="true" tabindex="-1"></a>        <span class="co">-- … normal processing …</span></span>
+<span id="cb57-10"><a href="#cb57-10" aria-hidden="true" tabindex="-1"></a>        <span class="cf">if</span> someError <span class="cf">then</span></span>
+<span id="cb57-11"><a href="#cb57-11" aria-hidden="true" tabindex="-1"></a>            self<span class="op">.</span>status<span class="op">:</span>setAndWrite<span class="op">(</span><span class="cn">S</span>tatus<span class="op">.</span><span class="cn">FAULT</span><span class="op">)</span></span>
+<span id="cb57-12"><a href="#cb57-12" aria-hidden="true" tabindex="-1"></a>        <span class="cf">end</span></span>
+<span id="cb57-13"><a href="#cb57-13" aria-hidden="true" tabindex="-1"></a>    <span class="cf">end</span></span>
+<span id="cb57-14"><a href="#cb57-14" aria-hidden="true" tabindex="-1"></a><span class="kw">end</span></span></code></pre></div>
+<p><strong>StatusAggregator</strong> rolls up all <code>StatusOutput</code> variables under a <code>ModuleGroup</code> into a single output:</p>
+<div class="sourceCode" id="cb58"><pre class="sourceCode lua"><code class="sourceCode lua"><span id="cb58-1"><a href="#cb58-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- Aggregate every StatusOutput under &#39;app&#39; into /status</span></span>
+<span id="cb58-2"><a href="#cb58-2" aria-hidden="true" tabindex="-1"></a>StatusAggregator<span class="op">(</span>app<span class="op">,</span> <span class="st">&quot;/status&quot;</span><span class="op">,</span> <span class="st">&quot;Overall system status&quot;</span><span class="op">,</span> <span class="cn">P</span>riorityMode<span class="op">.</span>fwok<span class="op">)</span></span></code></pre></div>
+<p>Priority modes: <code>PriorityMode.fwok</code>, <code>fwko</code>, <code>fw_warn_mixed</code>, <code>ofwk</code>.</p>
+<p><strong>PeriodicTrigger</strong> creates a regular time base (period in milliseconds):</p>
+<div class="sourceCode" id="cb59"><pre class="sourceCode lua"><code class="sourceCode lua"><span id="cb59-1"><a href="#cb59-1" aria-hidden="true" tabindex="-1"></a>PeriodicTrigger<span class="op">(</span>app<span class="op">,</span> <span class="st">&quot;Ticker&quot;</span><span class="op">,</span> <span class="st">&quot;500 ms heartbeat&quot;</span><span class="op">,</span> <span class="dv">500</span><span class="op">)</span></span></code></pre></div>
+<p><strong>Monitor utilities</strong> watch a scalar variable and publish a status based on threshold checks:</p>
+<div class="sourceCode" id="cb60"><pre class="sourceCode lua"><code class="sourceCode lua"><span id="cb60-1"><a href="#cb60-1" aria-hidden="true" tabindex="-1"></a><span class="co">-- Fault if value exceeds a threshold</span></span>
+<span id="cb60-2"><a href="#cb60-2" aria-hidden="true" tabindex="-1"></a>MaxMonitor  <span class="op">(</span><span class="cn">D</span>ataType<span class="op">.</span>float32<span class="op">,</span> app<span class="op">,</span> <span class="st">&quot;/Sensors/temperature&quot;</span><span class="op">,</span> <span class="st">&quot;/status&quot;</span><span class="op">,</span> <span class="st">&quot;/params/tempMax&quot;</span><span class="op">,</span>   <span class="st">&quot;Temperature monitor&quot;</span><span class="op">)</span></span>
+<span id="cb60-3"><a href="#cb60-3" aria-hidden="true" tabindex="-1"></a>MinMonitor  <span class="op">(</span><span class="cn">D</span>ataType<span class="op">.</span>float32<span class="op">,</span> app<span class="op">,</span> <span class="st">&quot;/Sensors/flow&quot;</span><span class="op">,</span>        <span class="st">&quot;/status&quot;</span><span class="op">,</span> <span class="st">&quot;/params/flowMin&quot;</span><span class="op">,</span>    <span class="st">&quot;Flow monitor&quot;</span><span class="op">)</span></span>
+<span id="cb60-4"><a href="#cb60-4" aria-hidden="true" tabindex="-1"></a>RangeMonitor<span class="op">(</span><span class="cn">D</span>ataType<span class="op">.</span>float32<span class="op">,</span> app<span class="op">,</span> <span class="st">&quot;/Sensors/pressure&quot;</span><span class="op">,</span>    <span class="st">&quot;/status&quot;</span><span class="op">,</span> <span class="st">&quot;/params/pressure&quot;</span><span class="op">,</span>   <span class="st">&quot;Pressure monitor&quot;</span><span class="op">)</span></span>
+<span id="cb60-5"><a href="#cb60-5" aria-hidden="true" tabindex="-1"></a>ExactMonitor<span class="op">(</span><span class="cn">D</span>ataType<span class="op">.</span>int32<span class="op">,</span>   app<span class="op">,</span> <span class="st">&quot;/Control/mode&quot;</span><span class="op">,</span>        <span class="st">&quot;/status&quot;</span><span class="op">,</span> <span class="st">&quot;/params/targetMode&quot;</span><span class="op">,</span>  <span class="st">&quot;Mode monitor&quot;</span><span class="op">)</span></span></code></pre></div>
+<hr />
+<h2 id="useful-patterns-and-tips">11. Useful patterns and tips</h2>
+<h3 id="initial-values-before-the-first-read">11.1 Initial values before the first read</h3>
+<p>The framework guarantees that every input has a valid (possibly zero/default) value before <code>mainLoop()</code> is called. Use <code>setScalarDefault</code> / <code>setArrayDefault</code> in <code>TestFacility</code>, or the <code>&lt;variable&gt;</code> entries in the config file, to pre-set values.</p>
+<p>If your module needs to publish an initial output <em>before</em> entering the blocking loop, do it at the top of <code>mainLoop()</code>:</p>
+<div class="sourceCode" id="cb61"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb61-1"><a href="#cb61-1" aria-hidden="true" tabindex="-1"></a><span class="dt">void</span> MyModule<span class="op">::</span>mainLoop<span class="op">()</span> <span class="op">{</span></span>
+<span id="cb61-2"><a href="#cb61-2" aria-hidden="true" tabindex="-1"></a>    output<span class="op">.</span>setAndWrite<span class="op">(</span><span class="fl">0.0</span><span class="op">);</span>   <span class="co">// publish a sane initial value</span></span>
+<span id="cb61-3"><a href="#cb61-3" aria-hidden="true" tabindex="-1"></a></span>
+<span id="cb61-4"><a href="#cb61-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">while</span> <span class="op">(</span><span class="kw">true</span><span class="op">)</span> <span class="op">{</span></span>
+<span id="cb61-5"><a href="#cb61-5" aria-hidden="true" tabindex="-1"></a>        input<span class="op">.</span>read<span class="op">();</span></span>
+<span id="cb61-6"><a href="#cb61-6" aria-hidden="true" tabindex="-1"></a>        output<span class="op">.</span>setAndWrite<span class="op">(</span><span class="dt">double</span><span class="op">(</span>input<span class="op">)</span> <span class="op">*</span> gain<span class="op">);</span></span>
+<span id="cb61-7"><a href="#cb61-7" aria-hidden="true" tabindex="-1"></a>    <span class="op">}</span></span>
+<span id="cb61-8"><a href="#cb61-8" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<h3 id="data-validity">11.2 Data validity</h3>
+<p>The framework propagates <code>DataValidity::faulty</code> whenever a connected device reports an error. Check it in safety-critical code:</p>
+<div class="sourceCode" id="cb62"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb62-1"><a href="#cb62-1" aria-hidden="true" tabindex="-1"></a><span class="cf">if</span> <span class="op">(</span>input<span class="op">.</span>dataValidity<span class="op">()</span> <span class="op">!=</span> ctk<span class="op">::</span>DataValidity<span class="op">::</span>ok<span class="op">)</span> <span class="op">{</span></span>
+<span id="cb62-2"><a href="#cb62-2" aria-hidden="true" tabindex="-1"></a>    <span class="co">// take safe action</span></span>
+<span id="cb62-3"><a href="#cb62-3" aria-hidden="true" tabindex="-1"></a>    output<span class="op">.</span>setAndWrite<span class="op">(</span><span class="fl">0.0</span><span class="op">);</span></span>
+<span id="cb62-4"><a href="#cb62-4" aria-hidden="true" tabindex="-1"></a>    <span class="cf">continue</span><span class="op">;</span></span>
+<span id="cb62-5"><a href="#cb62-5" aria-hidden="true" tabindex="-1"></a><span class="op">}</span></span></code></pre></div>
+<h3 id="version-numbers">11.3 Version numbers</h3>
+<p>Every write carries a <code>VersionNumber</code>. Push reads propagate the incoming version to subsequent writes automatically — this is how the framework detects causally-related updates and avoids double-processing. You rarely need to interact with version numbers directly.</p>
+<h3 id="tags">11.4 Tags</h3>
+<p>Tags are arbitrary strings you can attach to accessors or modules. They are used by the framework’s model layer (for filtering, generating documentation, etc.):</p>
+<div class="sourceCode" id="cb63"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb63-1"><a href="#cb63-1" aria-hidden="true" tabindex="-1"></a>ctk<span class="op">::</span>ScalarOutput<span class="op">&lt;</span><span class="dt">float</span><span class="op">&gt;</span> out<span class="op">{</span><span class="kw">this</span><span class="op">,</span> <span class="st">&quot;out&quot;</span><span class="op">,</span> <span class="st">&quot;V&quot;</span><span class="op">,</span> <span class="st">&quot;desc&quot;</span><span class="op">,</span> <span class="op">{</span><span class="st">&quot;physicalOutput&quot;</span><span class="op">,</span> <span class="st">&quot;safety&quot;</span><span class="op">}};</span></span></code></pre></div>
+<h3 id="module-lifecycle-hooks">11.5 Module lifecycle hooks</h3>
+<p>Override these in your <code>ApplicationModule</code> subclass if you need finer control:</p>
+<table>
+<thead>
+<tr class="header">
+<th>Method</th>
+<th>When called</th>
+<th>Typical use</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>postConstruct()</code></td>
+<td>after construction, single-threaded</td>
+<td>final wiring checks</td>
+</tr>
+<tr class="even">
+<td><code>prepare()</code></td>
+<td>before threads start, single-threaded</td>
+<td>write first-time outputs</td>
+</tr>
+<tr class="odd">
+<td><code>mainLoop()</code></td>
+<td>in the module’s own thread</td>
+<td>all normal processing</td>
+</tr>
+<tr class="even">
+<td><code>terminate()</code></td>
+<td>when <code>shutdown()</code> is called</td>
+<td>clean-up</td>
+</tr>
+</tbody>
+</table>
+<h3 id="generating-the-variable-map">11.6 Generating the variable map</h3>
+<p>Call <code>app.generateXML("myapp.xml")</code> or <code>app.generateDOT("myapp.dot")</code> after construction to dump the full variable network. The XML can be loaded by control-system tools to auto-generate operator panels.</p>
+<h3 id="testable-mode-without-testfacility">11.7 Testable mode without TestFacility</h3>
+<p>For standalone programs that need deterministic stepping:</p>
+<div class="sourceCode" id="cb64"><pre class="sourceCode cpp"><code class="sourceCode cpp"><span id="cb64-1"><a href="#cb64-1" aria-hidden="true" tabindex="-1"></a>app<span class="op">.</span>enableTestableMode<span class="op">();</span></span>
+<span id="cb64-2"><a href="#cb64-2" aria-hidden="true" tabindex="-1"></a>app<span class="op">.</span>initialise<span class="op">();</span></span>
+<span id="cb64-3"><a href="#cb64-3" aria-hidden="true" tabindex="-1"></a>app<span class="op">.</span>run<span class="op">();</span></span>
+<span id="cb64-4"><a href="#cb64-4" aria-hidden="true" tabindex="-1"></a><span class="co">// … then step manually via the internal testable-mode interface</span></span></code></pre></div>
+<p>This is normally only needed in integration test harnesses; regular unit tests should use <code>TestFacility</code>.</p>
+<hr />
+<h2 id="quick-reference-variable-path-rules">Quick reference: variable path rules</h2>
+<table>
+<colgroup>
+<col style="width: 55%" />
+<col style="width: 45%" />
+</colgroup>
+<thead>
+<tr class="header">
+<th>Path form</th>
+<th>Meaning</th>
+</tr>
+</thead>
+<tbody>
+<tr class="odd">
+<td><code>/Foo/Bar/var</code></td>
+<td>Absolute path; every accessor with this path is the same variable</td>
+</tr>
+<tr class="even">
+<td><code>var</code></td>
+<td>Relative path; resolved from the module’s position in the hierarchy</td>
+</tr>
+<tr class="odd">
+<td><code>../Sibling/var</code></td>
+<td>One level up, then into <code>Sibling</code></td>
+</tr>
+<tr class="even">
+<td><code>SubGroup/var</code></td>
+<td>One level down into <code>SubGroup</code></td>
+</tr>
+</tbody>
+</table>
+<p>Leading <code>/</code> is always stripped before comparison, so <code>/Foo</code> and <code>Foo</code> at the root level refer to the same variable.</p>
+<hr />
+<h2 id="further-reading">Further reading</h2>
+<ul>
+<li><a href="Lua/lua.md">Lua/lua.md</a> — Complete Lua scripting API reference</li>
+<li><code>example/</code> — Full working example application (oven temperature controller)</li>
+<li><code>tests/executables_src/</code> — Comprehensive test suite showing real usage patterns</li>
+</ul>

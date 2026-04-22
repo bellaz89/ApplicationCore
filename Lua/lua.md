@@ -286,48 +286,13 @@ Status constants: `Status.OFF`, `Status.OK`, `Status.WARNING`, `Status.FAULT`.
 
 ---
 
-### VariableGroup and ModuleGroup
+### VariableGroup
 
 ```lua
 -- VariableGroup inside a module
 local vg   = VariableGroup(mod, "Sensors", "Sensor inputs")
 local temp = vg:ScalarPushInput(DataType.float32, "Temperature", "°C", "")
 local st   = vg:StatusOutput("health", "Sensor health")
-
--- ModuleGroup for nesting
-local grp = ModuleGroup("Controllers", "")
-local sub = ApplicationModule("PID", "PID controller")  -- parent implicitly set by framework
-```
-
----
-
-### PeriodicTrigger
-
-```lua
-PeriodicTrigger(app, "Ticker", "500 ms trigger", 500)
--- defaultPeriod is in milliseconds; omit for 1000 ms default
-```
-
----
-
-### StatusAggregator
-
-```lua
--- Aggregate all StatusOutputs under the module group:
-StatusAggregator(app, "/status", "Overall system status", PriorityMode.fwok)
-```
-
-Priority modes: `PriorityMode.fwok`, `fwko`, `fw_warn_mixed`, `ofwk`.
-
----
-
-### StatusMonitor variants
-
-```lua
-MaxMonitor  (DataType.float32, app, "/input", "/status", "/params", "Max monitor")
-MinMonitor  (DataType.float32, app, "/input", "/status", "/params", "Min monitor")
-RangeMonitor(DataType.float32, app, "/input", "/status", "/params", "Range monitor")
-ExactMonitor(DataType.int32,   app, "/input", "/status", "/params", "Exact monitor")
 ```
 
 ---
