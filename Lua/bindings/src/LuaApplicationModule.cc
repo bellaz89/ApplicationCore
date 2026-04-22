@@ -15,202 +15,16 @@
 #include <boost/thread.hpp>
 
 #include <iostream>
+#include <fstream>
 
 namespace ChimeraTK {
 
   /********************************************************************************************************************/
 
-  // Helper: extract all upvalues from the function at funcIdx on L's stack.
-  // lua_getupvalue pushes each upvalue; we pop after extracting.
-  // The function at funcIdx is NOT consumed.
-  static std::vector<std::pair<std::string, std::function<sol::object(sol::state_view)>>>
-  extractUpvaluesImpl(lua_State* L, int funcIdx);
-
-  // Forward declaration
-  static std::function<sol::object(sol::state_view)> makeFactoryImpl(sol::object val);
-
-  /********************************************************************************************************************/
-
-  static std::function<sol::object(sol::state_view)> makeFactoryImpl(sol::object val) {
-    switch(val.get_type()) {
-      case sol::type::number: {
-        double v = val.as<double>();
-        return [v](sol::state_view sv) { return sol::make_object(sv, v); };
-      }
-      case sol::type::string: {
-        std::string s = val.as<std::string>();
-        return [s](sol::state_view sv) { return sol::make_object(sv, s); };
-      }
-      case sol::type::boolean: {
-        bool b = val.as<bool>();
-        return [b](sol::state_view sv) { return sol::make_object(sv, b); };
-      }
-      case sol::type::table: {
-        // Deep copy table entries into C++ factories
-        sol::table tbl = val.as<sol::table>();
-        using Entry = std::pair<std::function<sol::object(sol::state_view)>,
-            std::function<sol::object(sol::state_view)>>;
-        std::vector<Entry> entries;
-        tbl.for_each([&](sol::object k, sol::object v2) {
-          entries.emplace_back(makeFactoryImpl(k), makeFactoryImpl(v2));
-        });
-        return [entries](sol::state_view sv) {
-          sol::table out = sv.create_table(static_cast<int>(entries.size()));
-          for(auto& [kf, vf] : entries) {
-            out[kf(sv)] = vf(sv);
-          }
-          return static_cast<sol::object>(out);
-        };
-      }
-      case sol::type::userdata: {
-        // C++ accessor or module — re-wrap the same pointer
-        if(val.is<LuaScalarAccessor>()) {
-          LuaScalarAccessor* p = &val.as<LuaScalarAccessor&>();
-          return [p](sol::state_view sv) { return sol::make_object(sv, std::ref(*p)); };
-        }
-        if(val.is<LuaArrayAccessor>()) {
-          LuaArrayAccessor* p = &val.as<LuaArrayAccessor&>();
-          return [p](sol::state_view sv) { return sol::make_object(sv, std::ref(*p)); };
-        }
-        if(val.is<LuaVoidAccessor>()) {
-          LuaVoidAccessor* p = &val.as<LuaVoidAccessor&>();
-          return [p](sol::state_view sv) { return sol::make_object(sv, std::ref(*p)); };
-        }
-        if(val.is<LuaVariableGroup>()) {
-          LuaVariableGroup* p = &val.as<LuaVariableGroup&>();
-          return [p](sol::state_view sv) { return sol::make_object(sv, std::ref(*p)); };
-        }
-        if(val.is<LuaStatusAccessor>()) {
-          LuaStatusAccessor* p = &val.as<LuaStatusAccessor&>();
-          return [p](sol::state_view sv) { return sol::make_object(sv, std::ref(*p)); };
-        }
-        if(val.is<LuaApplicationModule>()) {
-          LuaApplicationModule* p = &val.as<LuaApplicationModule&>();
-          return [p](sol::state_view sv) { return sol::make_object(sv, std::ref(*p)); };
-        }
-        // Unknown userdata: store nil
-        return [](sol::state_view sv) { return sol::make_object(sv, sol::lua_nil); };
-      }
-      case sol::type::function: {
-        // Dump bytecode; extract upvalues separately
-        sol::protected_function fn = val.as<sol::protected_function>();
-        lua_State* L = fn.lua_state();
-        fn.push();
-        int funcIdx = lua_gettop(L);
-
-        std::vector<char> bytecode;
-        bytecode.reserve(4096);
-        lua_dump(
-            L,
-            [](lua_State* /*L*/, const void* p, size_t sz, void* ud) -> int {
-              auto* buf = static_cast<std::vector<char>*>(ud);
-              const char* data = static_cast<const char*>(p);
-              buf->insert(buf->end(), data, data + sz);
-              return 0;
-            },
-            &bytecode, 0);
-
-        // Extract upvalues while source state is alive
-        auto upvalues = extractUpvaluesImpl(L, funcIdx);
-        lua_pop(L, 1); // pop the function
-
-        return [bytecode, upvalues](sol::state_view sv) -> sol::object {
-          lua_State* TL = sv.lua_state();
-          if(luaL_loadbuffer(TL, bytecode.data(), bytecode.size(), "migrated") != LUA_OK) {
-            lua_pop(TL, 1);
-            return sol::make_object(sv, sol::lua_nil);
-          }
-          int fi = lua_gettop(TL);
-          // Patch upvalues
-          for(size_t i = 0; i < upvalues.size(); ++i) {
-            auto& [name, factory] = upvalues[i];
-            if(name == "_ENV") continue;
-            sol::object rebuilt = factory(sv);
-            rebuilt.push();
-            lua_setupvalue(TL, fi, static_cast<int>(i + 1));
-          }
-          sol::protected_function result(TL, -1);
-          lua_pop(TL, 1);
-          return sol::make_object(sv, result);
-        };
-      }
-      default:
-        return [](sol::state_view sv) { return sol::make_object(sv, sol::lua_nil); };
-    }
-  }
-
-  /********************************************************************************************************************/
-
-  static std::vector<std::pair<std::string, std::function<sol::object(sol::state_view)>>>
-  extractUpvaluesImpl(lua_State* L, int funcIdx) {
-    std::vector<std::pair<std::string, std::function<sol::object(sol::state_view)>>> result;
-    int i = 1;
-    while(true) {
-      const char* name = lua_getupvalue(L, funcIdx, i);
-      if(!name) break;
-      std::string uvName(name);
-      sol::state_view sv(L);
-      sol::object upval = sol::stack::get<sol::object>(L, -1);
-      lua_pop(L, 1);
-      if(uvName != "_ENV") {
-        result.emplace_back(uvName, makeFactoryImpl(upval));
-      }
-      else {
-        // Keep _ENV slot as placeholder (will be auto-set by lua_load)
-        result.emplace_back(uvName, [](sol::state_view sv2) { return sol::make_object(sv2, sol::lua_nil); });
-      }
-      ++i;
-    }
-    return result;
-  }
-
-  /********************************************************************************************************************/
-
-  // Public static forwarding to the internal implementation
-  std::function<sol::object(sol::state_view)> LuaApplicationModule::makeFactory(sol::object val) {
-    return makeFactoryImpl(val);
-  }
-
-  /********************************************************************************************************************/
-
-  std::vector<std::pair<std::string, std::function<sol::object(sol::state_view)>>>
-  LuaApplicationModule::extractUpvalues(lua_State* L, int funcIdx) {
-    return extractUpvaluesImpl(L, funcIdx);
-  }
-
-  /********************************************************************************************************************/
-
-  void LuaApplicationModule::captureMainLoop(sol::protected_function& fn) {
-    lua_State* L = fn.lua_state();
-    fn.push();
-    int funcIdx = lua_gettop(L);
-
-    // Dump bytecode; reserve upfront to avoid repeated reallocation as chunks arrive.
-    _mainLoopBytecode.clear();
-    _mainLoopBytecode.reserve(4096);
-    lua_dump(
-        L,
-        [](lua_State* /*L*/, const void* p, size_t sz, void* ud) -> int {
-          auto* buf = static_cast<std::vector<char>*>(ud);
-          const char* data = static_cast<const char*>(p);
-          buf->insert(buf->end(), data, data + sz);
-          return 0;
-        },
-        &_mainLoopBytecode, 0);
-
-    // Extract upvalues
-    _mainLoopUpvalues = extractUpvaluesImpl(L, funcIdx);
-    lua_pop(L, 1); // pop the function
-  }
-
-  /********************************************************************************************************************/
-
   LuaApplicationModule::LuaApplicationModule(ModuleGroup* owner, const std::string& name,
-      const std::string& description, const std::unordered_set<std::string>& tags)
-  : ApplicationModule(owner, name, description, tags) {}
-
-  /********************************************************************************************************************/
-
+      const std::string& description, const std::string& scriptPath,
+      const std::unordered_set<std::string>& tags)
+  : ApplicationModule(owner, name, description, tags), _scriptPath(scriptPath) {}
 
   /********************************************************************************************************************/
 
@@ -242,29 +56,79 @@ namespace ChimeraTK {
           }
         });
 
-    // Load the mainLoop bytecode into the module state.
-    if(luaL_loadbuffer(_moduleState->lua_state(), _mainLoopBytecode.data(), _mainLoopBytecode.size(),
-           getName().c_str()) != LUA_OK) {
-      const char* err = lua_tostring(_moduleState->lua_state(), -1);
+    // Set up the global "app" reference to the parent module group (if it's a LuaModuleGroup)
+    auto* parentLuaGroup = dynamic_cast<LuaModuleGroup*>(getOwner());
+    if(parentLuaGroup) {
+      (*_moduleState)["app"] = std::ref(*parentLuaGroup);
+    }
+
+    // Inject this module instance as a static reference so ApplicationModule() factory can return it
+    // Scripts that call ApplicationModule(app, name, desc) will get this instance back
+    (*_moduleState)["_modSelfRef"] = std::ref(*this);
+
+    // Load and execute the Lua script file in this thread's state
+    std::ifstream scriptFile(_scriptPath);
+    if(!scriptFile.good()) {
       throw ChimeraTK::logic_error(
-          std::string("LuaApplicationModule: failed to load mainLoop bytecode for '") + getName() +
-          "': " + (err ? err : "unknown error"));
+          std::string("LuaApplicationModule: failed to open script file '") + _scriptPath + "'");
     }
 
-    int funcIdx = lua_gettop(_moduleState->lua_state());
+    std::string scriptContent((std::istreambuf_iterator<char>(scriptFile)),
+                              std::istreambuf_iterator<char>());
 
-    // Apply upvalue migration
-    for(size_t i = 0; i < _mainLoopUpvalues.size(); ++i) {
-      auto& [name, factory] = _mainLoopUpvalues[i];
-      if(name == "_ENV") continue;
-      sol::object rebuilt = factory(sol::state_view{_moduleState->lua_state()});
-      rebuilt.push();
-      lua_setupvalue(_moduleState->lua_state(), funcIdx, static_cast<int>(i + 1));
+    // Execute the script
+    auto result = _moduleState->safe_script(scriptContent, _scriptPath, sol::script_pass_on_error);
+    
+    if(!result.valid()) {
+      sol::error err = result;
+      throw ChimeraTK::logic_error(
+          std::string("LuaApplicationModule: error executing script '") + _scriptPath + "': " + err.what());
     }
 
-    // The loaded function is now at funcIdx on the stack; wrap it as a protected_function.
-    _mainLoopFn = sol::protected_function(_moduleState->lua_state(), funcIdx);
-    lua_pop(_moduleState->lua_state(), 1);
+    // Check that the script returned exactly one ApplicationModule (which should be this object)
+    if(result.get_type() == sol::type::nil) {
+      throw ChimeraTK::logic_error(
+          std::string("LuaApplicationModule: script '") + _scriptPath + 
+          "' returned nil (must return an ApplicationModule)");
+    }
+
+    if(result.get_type() != sol::type::userdata || !result.is<LuaApplicationModule>()) {
+      throw ChimeraTK::logic_error(
+          std::string("LuaApplicationModule: script '") + _scriptPath + 
+          "' did not return an ApplicationModule (got " + 
+          std::string(sol::type_name(_moduleState->lua_state(), result.get_type())) + ")");
+    }
+
+    auto& returnedMod = result.as<LuaApplicationModule&>();
+    if(&returnedMod != this) {
+      throw ChimeraTK::logic_error(
+          std::string("LuaApplicationModule: script '") + _scriptPath + 
+          "' returned a different ApplicationModule instance than the one created by the framework");
+    }
+
+    // Retrieve the mainLoop function from the returned module
+    sol::object mainLoopObj = result["mainLoop"];
+    
+    if(mainLoopObj.get_type() == sol::type::nil) {
+      throw ChimeraTK::logic_error(
+          std::string("LuaApplicationModule: script '") + _scriptPath + 
+          "' did not define a mainLoop function");
+    }
+
+    if(mainLoopObj.get_type() != sol::type::function) {
+      throw ChimeraTK::logic_error(
+          std::string("LuaApplicationModule: script '") + _scriptPath + 
+          "' mainLoop is not a function (got " + std::string(sol::type_name(_moduleState->lua_state(), mainLoopObj.get_type())) + ")");
+    }
+
+    try {
+      _mainLoopFn = mainLoopObj.as<sol::protected_function>();
+    }
+    catch(const std::exception& e) {
+      throw ChimeraTK::logic_error(
+          std::string("LuaApplicationModule: failed to extract mainLoop from script '") + 
+          _scriptPath + "': " + e.what());
+    }
 
     // Spawn the module thread via the base class.
     Application::getInstance().getTestableMode().unlock("releaseForLuaModuleStart");
@@ -298,11 +162,8 @@ namespace ChimeraTK {
 
   void LuaApplicationModule::terminate() {
     ApplicationModule::terminate();
-
-    // Interrupt all accessible transfer elements so the Lua thread unblocks from any read()
-    for(auto& var : getAccessorListRecursive()) {
-      var.getAppAccessorNoType().getHighLevelImplElement()->interrupt();
-    }
+    std::lock_guard<std::mutex> lock(_mutex);
+    _moduleState.reset();
   }
 
   /********************************************************************************************************************/
@@ -369,19 +230,13 @@ namespace ChimeraTK {
         "ScalarOutputReverseRecovery",
         [](LuaApplicationModule& self, ChimeraTK::DataType type, const std::string& name, const std::string& unit,
             const std::string& description) -> LuaScalarAccessor& {
-          return *self.make_child<LuaScalarAccessor>(AccessorTypeTag<ScalarOutputReverseRecovery>{}, type, &self, name,
-              unit, description);
+          return *self.make_child<LuaScalarAccessor>(AccessorTypeTag<ScalarOutputReverseRecovery>{}, type, &self,
+              name, unit, description);
         },
         "ArrayPushInput",
         [](LuaApplicationModule& self, ChimeraTK::DataType type, const std::string& name, const std::string& unit,
             size_t nElements, const std::string& description) -> LuaArrayAccessor& {
           return *self.make_child<LuaArrayAccessor>(AccessorTypeTag<ArrayPushInput>{}, type, &self, name, unit,
-              nElements, description);
-        },
-        "ArrayPushInputWB",
-        [](LuaApplicationModule& self, ChimeraTK::DataType type, const std::string& name, const std::string& unit,
-            size_t nElements, const std::string& description) -> LuaArrayAccessor& {
-          return *self.make_child<LuaArrayAccessor>(AccessorTypeTag<ArrayPushInputWB>{}, type, &self, name, unit,
               nElements, description);
         },
         "ArrayPollInput",
@@ -393,80 +248,50 @@ namespace ChimeraTK {
         "ArrayOutput",
         [](LuaApplicationModule& self, ChimeraTK::DataType type, const std::string& name, const std::string& unit,
             size_t nElements, const std::string& description) -> LuaArrayAccessor& {
-          return *self.make_child<LuaArrayAccessor>(AccessorTypeTag<ArrayOutput>{}, type, &self, name, unit, nElements,
-              description);
-        },
-        "ArrayOutputPushRB",
-        [](LuaApplicationModule& self, ChimeraTK::DataType type, const std::string& name, const std::string& unit,
-            size_t nElements, const std::string& description) -> LuaArrayAccessor& {
-          return *self.make_child<LuaArrayAccessor>(AccessorTypeTag<ArrayOutputPushRB>{}, type, &self, name, unit,
+          return *self.make_child<LuaArrayAccessor>(AccessorTypeTag<ArrayOutput>{}, type, &self, name, unit,
               nElements, description);
         },
-        "ArrayOutputReverseRecovery",
-        [](LuaApplicationModule& self, ChimeraTK::DataType type, const std::string& name, const std::string& unit,
-            size_t nElements, const std::string& description) -> LuaArrayAccessor& {
-          return *self.make_child<LuaArrayAccessor>(AccessorTypeTag<ArrayOutputReverseRecovery>{}, type, &self, name,
-              unit, nElements, description);
-        },
-        "VoidInput",
-        [](LuaApplicationModule& self, const std::string& name,
-            const std::string& description) -> LuaVoidAccessor& {
-          return *self.make_child<LuaVoidAccessor>(VoidTypeTag<VoidInput>{}, &self, name, description);
-        },
-        "VoidOutput",
-        [](LuaApplicationModule& self, const std::string& name,
-            const std::string& description) -> LuaVoidAccessor& {
-          return *self.make_child<LuaVoidAccessor>(VoidTypeTag<VoidOutput>{}, &self, name, description);
+        "VoidAccessor",
+        [](LuaApplicationModule& self, const std::string& name) -> LuaVoidAccessor& {
+          return *self.make_child<LuaVoidAccessor>(&self, name);
         },
         "VariableGroup",
-        [](LuaApplicationModule& self, const std::string& name,
-            const std::string& description) -> LuaVariableGroup& {
-          return *self.make_child<LuaVariableGroup>(&self, name, description);
+        [](LuaApplicationModule& self, const std::string& name) -> LuaVariableGroup& {
+          return *self.make_child<LuaVariableGroup>(&self, name);
         },
-        "StatusOutput",
-        [](LuaApplicationModule& self, const std::string& name,
-            const std::string& description) -> LuaStatusAccessor& {
-          return *self.make_child<LuaStatusAccessor>(LuaStatusAccessor::OutputTag{}, &self, name, description);
+        "DataConsistencyGroup",
+        [](LuaApplicationModule& self) -> auto {
+          return self.getDataConsistencyGroup();
         },
-        "StatusPushInput",
-        [](LuaApplicationModule& self, const std::string& name,
-            const std::string& description) -> LuaStatusAccessor& {
-          return *self.make_child<LuaStatusAccessor>(LuaStatusAccessor::PushInputTag{}, &self, name, description);
-        },
-        "StatusPollInput",
-        [](LuaApplicationModule& self, const std::string& name,
-            const std::string& description) -> LuaStatusAccessor& {
-          return *self.make_child<LuaStatusAccessor>(LuaStatusAccessor::PollInputTag{}, &self, name, description);
-        },
-
-        // __newindex: capture mainLoop or store all other values as factories
-        sol::meta_function::new_index,
-        [](LuaApplicationModule& self, const std::string& key, sol::object val) {
-          // Handle mainLoop specially: capture bytecode + upvalues
-          if(key == "mainLoop" && val.get_type() == sol::type::function) {
-            sol::protected_function fn = val.as<sol::protected_function>();
-            self.captureMainLoop(fn);
-            return;
-          }
-          // Store all other properties as factories (accessors, groups, plain values)
-          auto factory = LuaApplicationModule::makeFactory(val);
-          self._properties[key] = std::move(factory);
-        },
-
-        // __index fallback: look up in _properties after named-method lookup misses
-        sol::meta_function::index,
-        [](LuaApplicationModule& self, const std::string& key, sol::this_state s) -> sol::object {
-          auto it = self._properties.find(key);
-          if(it != self._properties.end()) {
-            return it->second(sol::state_view{s});
-          }
-          return sol::make_object(sol::state_view{s}, sol::lua_nil);
+        "ReadAnyGroup",
+        [](LuaApplicationModule& self) -> auto {
+          return self.getReadAnyGroup();
         });
 
     // Factory function: ApplicationModule(owner, name, description)
+    // This factory function is registered in the module's lua state before script execution.
+    // It returns a reference to the C++-created module instance that was injected as a global.
+    // 
+    // We capture lua_state() at registration time so we can access the global _modSelfRef later.
+    lua_State* L = lua.lua_state();
     lua.set_function("ApplicationModule",
-        [](LuaModuleGroup& owner, const std::string& name, const std::string& description) -> LuaApplicationModule& {
-          return *dynamic_cast<LuaOwningObject&>(owner).make_child<LuaApplicationModule>(&owner, name, description);
+        [L](LuaModuleGroup& owner, const std::string& name, 
+            const std::string& description) -> LuaApplicationModule& {
+          // Access the global _modSelfRef from the lua state where this was registered
+          sol::state_view lua_view(L);
+          sol::object modRef = lua_view.globals()["_modSelfRef"];
+          
+          if(modRef.get_type() == sol::type::nil) {
+            throw ChimeraTK::logic_error(
+                "ApplicationModule(): module reference not injected - internal error");
+          }
+          
+          if(!modRef.is<LuaApplicationModule>()) {
+            throw ChimeraTK::logic_error(
+                "ApplicationModule(): module reference has wrong type - internal error");
+          }
+          
+          return modRef.as<LuaApplicationModule&>();
         });
   }
 

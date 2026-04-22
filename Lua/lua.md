@@ -41,17 +41,22 @@ Each `<module>` entry causes one Lua script file to be loaded. The `path` value 
 
 ## Writing a Lua Module
 
-A Lua script creates one or more `ApplicationModule` objects attached to the global `app` (a
-`ModuleGroup`). Accessors are created **at script level** (before `app.initialise()`) and stored on
-the module with `mod.myAccessor = ...`. The module's main loop receives `self` as its first argument
-and retrieves accessors via `self.myAccessor`.
+A Lua script **must** create exactly one `ApplicationModule` object and return it. Multiple modules cannot be instantiated from a single script file.
+
+The script executes directly in the module's thread, so there is no bytecode capture or state migration overhead. Scripts work exactly as before:
+1. Call `ApplicationModule(app, "ModuleName", "Description")` to get the module instance
+2. Create accessors using `mod:ScalarPushInput()` etc. (at script level)
+3. Define the main loop as `function mod:mainLoop()` 
+4. Return the module with `return mod`
+
+Accessors are created **at script level** (before `app.initialise()`) and retrieved in `mainLoop` via `self.myAccessor`.
 
 ### Minimal example
 
 ```lua
 -- mymodule.lua
 
-local mod = ApplicationModule("Control", "A simple controller")
+local mod = ApplicationModule(app, "Control", "A simple controller")
 local cfg = appConfig()
 
 -- Accessors and config values assigned as self properties at script level.
@@ -66,11 +71,14 @@ function mod:mainLoop()
         self.output:setAndWrite(v * self.scale)
     end
 end
+
+-- IMPORTANT: Return the module so it can be registered with the application
+return mod
 ```
 
-> **Tip**: File-scope locals (including accessor objects) are automatically migrated into the
-> per-module VM as upvalues and are available directly inside `mainLoop`. You can also access
-> them via `self.xxx` if you stored them as module properties.
+> **Important**: Each Lua script **must** end with `return mod` to return the single ApplicationModule it creates. If a script returns nothing (nil), or returns a non-ApplicationModule value, an exception will be thrown and the script will fail to load.
+
+> **Tip**: File-scope locals (including accessor objects) are automatically available inside `mainLoop` as upvalues. Since the script executes directly in the module's thread (not in a shared loader), all locals naturally persist without any special migration logic.
 
 ---
 
@@ -324,10 +332,9 @@ ExactMonitor(DataType.int32,   app, "/input", "/status", "/params", "Exact monit
 
 ---
 
-### Upvalue migration
+### Upvalues and File-Scope Locals
 
-File-scope locals are automatically migrated into the per-module VM so they can be used inside
-`mainLoop`. This includes plain values (numbers, strings, booleans) and accessor objects:
+File-scope locals are automatically available inside `mainLoop` as upvalues. This includes plain values (numbers, strings, booleans) and accessor objects. Since the script now executes directly in the module's thread (not in a shared loader), all locals naturally persist in the same Lua state:
 
 ```lua
 local cfg   = appConfig()
@@ -349,8 +356,7 @@ function mod.mainLoop(self)
 end
 ```
 
-> **Note**: Accessor objects captured as upvalues (`input`, `output`) are the same C++ objects —
-> their lifetimes are managed by the module group, not by the Lua VM.
+> **Note**: Accessor objects captured as upvalues (`input`, `output`) are the same C++ objects — their lifetimes are managed by the module group, not by the Lua VM.
 
 ---
 
