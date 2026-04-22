@@ -294,9 +294,9 @@ local vg   = VariableGroup(mod, "Sensors", "Sensor inputs")
 local temp = vg:ScalarPushInput(DataType.float32, "Temperature", "°C", "")
 local st   = vg:StatusOutput("health", "Sensor health")
 
--- ModuleGroup for nesting (app root is implicit)
+-- ModuleGroup for nesting
 local grp = ModuleGroup("Controllers", "")
-local sub = ApplicationModule(grp, "PID", "PID controller")
+local sub = ApplicationModule("PID", "PID controller")  -- parent implicitly set by framework
 ```
 
 ---
@@ -402,8 +402,42 @@ the `sumneko.lua` extension, Neovim, etc.).
 
 ---
 
-## Concurrency Model
+## Key Constraints and Requirements
+
+### Single ApplicationModule Per Script
+
+Each Lua script **must** create and return exactly **one** `ApplicationModule`:
+
+- If a script creates multiple modules, an exception is thrown
+- If a script returns `nil` or a non-ApplicationModule value, an exception is thrown
+- The script's return value must be the same C++ instance created by the framework
+
+This constraint simplifies the architecture: each script = each module = each thread.
+
+### No Shared Loader State
+
+Unlike earlier versions, there is **no shared Lua state** for loading scripts. Each module's script
+runs directly in its own thread. This means:
+
+- No bytecode capture or reconstruction overhead
+- No need to serialize/deserialize Lua values between VMs
+- File-scope locals naturally persist as upvalues
+- Direct execution in the module's thread where `mainLoop` will run
+
+---
 
 Each Lua module runs in its own `sol::state` (Lua VM) and its own C++ thread. Modules execute
 concurrently without any shared Lua state. The underlying ApplicationCore C++ operations (read,
 write, etc.) are already thread-safe.
+
+### Script Execution Flow
+
+1. **Creation**: `LuaModuleManager` creates a `LuaApplicationModule` C++ object with the script path
+2. **Thread Start**: The module thread starts and calls `run()`
+3. **State Setup**: A new Lua state is created in that thread
+4. **Script Execution**: The script file is loaded and executed in that same thread's Lua state
+5. **Module Binding**: During script execution, `ApplicationModule("Name", "Desc")` retrieves the already-created C++ instance
+6. **Setup Phase**: Script creates accessors at module level (before `app.initialise()`)
+7. **Main Loop**: After setup, `mainLoop` is called repeatedly in the same thread/state
+
+This direct in-thread execution eliminates the complexity of migrating Lua state between threads, since everything happens in the same VM and thread from start to finish.

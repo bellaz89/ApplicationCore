@@ -30,3 +30,5 @@ function mod:mainLoop()
 
   self.testError:setAndWrite(errMsg)
 end
+
+return mod

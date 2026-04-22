@@ -32,3 +32,5 @@ function mod.mainLoop(self)
         self.lt:setAndWrite(self.a < self.b)
     end
 end
+
+return mod

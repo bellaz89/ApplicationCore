@@ -27,3 +27,5 @@ function mod.mainLoop(self)
         label:setAndWrite(prefix .. tostring(v + addend))
     end
 end
+
+return mod

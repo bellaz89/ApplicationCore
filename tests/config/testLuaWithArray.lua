@@ -51,3 +51,5 @@ function mod:mainLoop()
     self.arrayOut1:write()
   end
 end
+
+return mod

@@ -13,3 +13,6 @@ function mod:mainLoop()
     self.myOutput:setAndWrite(val + 0.5)
   end
 end
+
+return mod
+

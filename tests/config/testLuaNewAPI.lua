@@ -23,3 +23,5 @@ function mod.mainLoop(self)
         status:setAndWrite("ok")
     end
 end
+
+return mod
