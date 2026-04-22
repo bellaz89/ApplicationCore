@@ -17,7 +17,7 @@ if(${pybind11_FOUND})
   find_program(STUBGEN stubgen)
 
   if(${STUBGEN} STREQUAL "STUBGEN-NOTFOUND")
-    message(FATAL_ERROR "Could not find program 'stubgen'. Try installing package 'mypy' or similar.")
+    message(WARNING "Could not find program 'stubgen'. Python stubs will not be generated. Try installing package 'mypy'.")
   endif()
 
 else()
@@ -174,7 +174,7 @@ if(${pybind11_FOUND})
   target_link_libraries(PyApplicationCore PRIVATE ${PROJECT_NAME})
 
   # Python module stub
-  if((NOT ${CMAKE_BUILD_TYPE} STREQUAL "asan") AND(NOT ${CMAKE_BUILD_TYPE} STREQUAL "tsan"))
+  if((NOT ${CMAKE_BUILD_TYPE} STREQUAL "asan") AND(NOT ${CMAKE_BUILD_TYPE} STREQUAL "tsan") AND(NOT ${STUBGEN} STREQUAL "STUBGEN-NOTFOUND"))
     configure_file(cmake/runStubgen.sh.in ${CMAKE_CURRENT_BINARY_DIR}/runStubgen.sh)
     add_custom_target(PyApplicationCoreInterface ALL
       COMMAND ./runStubgen.sh
@@ -183,8 +183,12 @@ if(${pybind11_FOUND})
       BYPRODUCTS ${CMAKE_CURRENT_BINARY_DIR}/PyApplicationCore.pyi
       COMMENT "Use stubgen to create .pyi for statement completion")
   else()
-    # stubgen would fail to run due to missing asan/tsan symbols
-    message(NOTICE "Note: Python stub will not be generated for asan and tsan builds.")
+    # stubgen would fail to run due to missing asan/tsan symbols or stubgen not found
+    if(${STUBGEN} STREQUAL "STUBGEN-NOTFOUND")
+      message(NOTICE "Note: Python stub will not be generated because stubgen was not found.")
+    else()
+      message(NOTICE "Note: Python stub will not be generated for asan and tsan builds.")
+    endif()
   endif()
 endif()
 
