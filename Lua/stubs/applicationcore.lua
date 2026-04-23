@@ -290,6 +290,14 @@ function ApplicationModule:readAllNonBlocking(includeReturnChannels) end
 ---@param includeReturnChannels? boolean
 function ApplicationModule:writeAll(includeReturnChannels) end
 
+---@param includeReturnChannels? boolean
+function ApplicationModule:writeAllDestructively(includeReturnChannels) end
+
+-- Optional lifecycle hook. If a script defines `function mod:prepare()`, the framework calls it
+-- before runApplication() returns. Use it to seed initial values for outputs that downstream
+-- push-input consumers need at startup.
+function ApplicationModule:prepare() end
+
 ---@return VersionNumber
 function ApplicationModule:getCurrentVersionNumber() end
 
@@ -434,11 +442,35 @@ function ConfigReader:getModules(path) end
 ---@return VariableGroup
 function VariableGroup(owner, name, description) end
 
--- New API: method-call accessor factories on VariableGroup
+-- Method-call accessor factories on VariableGroup
 ---@param type DataType  @param name string  @param unit string  @param description string  @return ScalarAccessor
 function VariableGroup:ScalarPushInput(type, name, unit, description) end
 ---@param type DataType  @param name string  @param unit string  @param description string  @return ScalarAccessor
+function VariableGroup:ScalarPushInputWB(type, name, unit, description) end
+---@param type DataType  @param name string  @param unit string  @param description string  @return ScalarAccessor
+function VariableGroup:ScalarPollInput(type, name, unit, description) end
+---@param type DataType  @param name string  @param unit string  @param description string  @return ScalarAccessor
 function VariableGroup:ScalarOutput(type, name, unit, description) end
+---@param type DataType  @param name string  @param unit string  @param description string  @return ScalarAccessor
+function VariableGroup:ScalarOutputPushRB(type, name, unit, description) end
+---@param type DataType  @param name string  @param unit string  @param description string  @return ScalarAccessor
+function VariableGroup:ScalarOutputReverseRecovery(type, name, unit, description) end
+---@param type DataType  @param name string  @param unit string  @param nElements integer  @param description string  @return ArrayAccessor
+function VariableGroup:ArrayPushInput(type, name, unit, nElements, description) end
+---@param type DataType  @param name string  @param unit string  @param nElements integer  @param description string  @return ArrayAccessor
+function VariableGroup:ArrayPushInputWB(type, name, unit, nElements, description) end
+---@param type DataType  @param name string  @param unit string  @param nElements integer  @param description string  @return ArrayAccessor
+function VariableGroup:ArrayPollInput(type, name, unit, nElements, description) end
+---@param type DataType  @param name string  @param unit string  @param nElements integer  @param description string  @return ArrayAccessor
+function VariableGroup:ArrayOutput(type, name, unit, nElements, description) end
+---@param type DataType  @param name string  @param unit string  @param nElements integer  @param description string  @return ArrayAccessor
+function VariableGroup:ArrayOutputPushRB(type, name, unit, nElements, description) end
+---@param type DataType  @param name string  @param unit string  @param nElements integer  @param description string  @return ArrayAccessor
+function VariableGroup:ArrayOutputReverseRecovery(type, name, unit, nElements, description) end
+---@param name string  @param description string  @return VoidAccessor
+function VariableGroup:VoidInput(name, description) end
+---@param name string  @param description string  @return VoidAccessor
+function VariableGroup:VoidOutput(name, description) end
 ---@param name string  @param description string  @return StatusAccessor
 function VariableGroup:StatusOutput(name, description) end
 ---@param name string  @param description string  @return StatusAccessor

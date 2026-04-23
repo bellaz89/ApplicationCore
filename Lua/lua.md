@@ -78,7 +78,7 @@ return mod
 
 > **Important**: Each Lua script **must** end with `return mod` to return the single ApplicationModule it creates. If a script returns nothing (nil), or returns a non-ApplicationModule value, an exception will be thrown and the script will fail to load.
 
-> **Tip**: File-scope locals (including accessor objects) are automatically available inside `mainLoop` as upvalues. Since the script executes directly in the module's thread (not in a shared loader), all locals naturally persist without any special migration logic.
+> **Tip**: File-scope locals (including accessor objects) are captured as upvalues by `mainLoop` in the normal Lua way. They persist for the lifetime of the module's `sol::state`; no migration or serialisation is involved.
 
 ---
 
@@ -167,25 +167,30 @@ mod:ArrayPushInput(DataType.int32, "name", "unit", 10, "description")
 --                                                  ^--- nElements
 ```
 
-**View semantics**: Array accessors are views into the C++ buffer — no data is copied. Index access
-is 1-based (Lua convention).
+**View semantics**: `arr[i]` and `arr[i] = v` read and write the C++ buffer directly through the
+`__index` / `__newindex` metamethods — no copy. Indices are 1-based (Lua convention). `#arr` returns
+the element count.
 
 ```lua
 arr:read()
-arr:readAndGet()          -- read(), return self (for use in for-loops)
-local n = #arr            -- number of elements (__len)
-local v = arr[3]          -- get element 3 (__index)
-arr[3] = 42               -- set element 3 (__newindex)
+arr:readAndGet()          -- read(), return self (for chaining)
+local n = #arr            -- number of elements
+local v = arr[3]          -- get element 3
+arr[3] = 42               -- set element 3
 
--- Iterate with pairs or ipairs:
-for i, v in pairs(arr) do
+-- Iterate: use ipairs or a numeric for-loop. pairs() does not work on array accessors
+-- because they are userdata and no __pairs metamethod is defined.
+for i, v in ipairs(arr:readAndGet()) do
   print(i, v)
 end
 
--- Read then iterate:
-for i, v in pairs(arr:readAndGet()) do
-  print(i, v)
+for i = 1, #arr do
+  print(i, arr[i])
 end
+
+-- Bulk conversion (one variant dispatch regardless of length):
+local copy = arr:toTable()         -- C++ buffer → fresh 1-based Lua table
+arr:fromTable({1, 2, 3, 4})        -- Lua table → C++ buffer
 ```
 
 ---
@@ -221,7 +226,15 @@ end
 
 ### DataConsistencyGroup
 
+A DataConsistencyGroup is normally paired with a ReadAnyGroup: `readAny()` on the RAG yields the
+ID of whichever member just updated, which you then feed into `dcg:update(id)`.
+
 ```lua
+local rag = ReadAnyGroup()
+rag:add(self.ts)
+rag:add(self.data)
+rag:finalise()
+
 local dcg = DataConsistencyGroup(MatchingMode.exact)
 dcg:add(self.ts)
 dcg:add(self.data)
@@ -285,6 +298,20 @@ s:readAndGet()             -- read + return integer
 Status constants: `Status.OFF`, `Status.OK`, `Status.WARNING`, `Status.FAULT`.
 
 ---
+
+### Optional `prepare` hook
+
+Scripts can optionally define `function mod:prepare()`. The framework calls it before
+`runApplication()` returns — i.e. before any `mainLoop` runs and before the first stepApplication
+in testable mode. Use it to seed initial values for outputs that downstream push-input consumers
+need at startup. If the script does not define `prepare`, no hook is invoked.
+
+```lua
+function mod:prepare()
+    self.statusOut:write()       -- emit a known initial value
+    self.someValue:setAndWrite(0)
+end
+```
 
 ### VariableGroup
 
@@ -379,30 +406,40 @@ Each Lua script **must** create and return exactly **one** `ApplicationModule`:
 
 This constraint simplifies the architecture: each script = each module = each thread.
 
-### No Shared Loader State
+### One Lua state per module
 
-Unlike earlier versions, there is **no shared Lua state** for loading scripts. Each module's script
-runs directly in its own thread. This means:
+Every `LuaApplicationModule` owns its own `sol::state`; there is no shared loader. A module's
+`sol::state` is created and populated during `run()`, then reused by `mainLoop` for the lifetime of
+the module. As a consequence:
 
-- No bytecode capture or reconstruction overhead
-- No need to serialize/deserialize Lua values between VMs
-- File-scope locals naturally persist as upvalues
-- Direct execution in the module's thread where `mainLoop` will run
+- No bytecode capture or reconstruction, no VM-to-VM value serialisation.
+- File-scope locals persist as upvalues inside `mainLoop` in the standard Lua way.
+- Modules are fully isolated from each other at the Lua level.
 
 ---
 
-Each Lua module runs in its own `sol::state` (Lua VM) and its own C++ thread. Modules execute
-concurrently without any shared Lua state. The underlying ApplicationCore C++ operations (read,
-write, etc.) are already thread-safe.
+Each Lua module owns a private `sol::state` (Lua VM). Modules execute concurrently on their own
+module threads; no Lua state is shared between modules. The underlying ApplicationCore C++ transfer
+operations are already thread-safe.
 
-### Script Execution Flow
+### Script execution flow
 
-1. **Creation**: `LuaModuleManager` creates a `LuaApplicationModule` C++ object with the script path
-2. **Thread Start**: The module thread starts and calls `run()`
-3. **State Setup**: A new Lua state is created in that thread
-4. **Script Execution**: The script file is loaded and executed in that same thread's Lua state
-5. **Module Binding**: During script execution, `ApplicationModule("Name", "Desc")` retrieves the already-created C++ instance
-6. **Setup Phase**: Script creates accessors at module level (before `app.initialise()`)
-7. **Main Loop**: After setup, `mainLoop` is called repeatedly in the same thread/state
+1. **Creation**: `LuaModuleManager` constructs one `LuaApplicationModule` per `<LuaModules>` entry
+   and registers it with the `Application`.
+2. **`run()` — setup phase**: The framework calls `run()` on each module during startup.
+   `LuaApplicationModule::run()` creates the per-module `sol::state`, registers all bindings, loads
+   and executes the script, verifies the script returned the expected `ApplicationModule` instance,
+   and extracts the `mainLoop` function. All of this happens in the thread that invoked `run()`.
+3. **Thread spawn**: At the end of `run()`, `ApplicationModule::run()` spawns the module's own
+   thread, which will invoke `mainLoop()`.
+4. **Main loop**: `mainLoop()` calls the Lua `mainLoop` function inside the module's
+   `sol::state`. The setup phase and the main-loop phase happen in different threads, but they are
+   strictly sequential (the setup thread has finished touching the state before the module thread
+   starts), so no concurrent access to the Lua state occurs.
+5. **Termination**: `terminate()` interrupts the module thread, joins it, and then releases the Lua
+   state.
 
-This direct in-thread execution eliminates the complexity of migrating Lua state between threads, since everything happens in the same VM and thread from start to finish.
+The `ApplicationModule()` factory visible to Lua simply returns the pre-constructed C++ instance,
+so `local mod = ApplicationModule("Name", "Desc")` binds `mod` to the module the framework already
+created. File-scope locals declared around it are captured as upvalues by `mainLoop` in the usual
+Lua way.

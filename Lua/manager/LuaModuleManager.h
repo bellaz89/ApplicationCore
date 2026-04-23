@@ -2,48 +2,34 @@
 // SPDX-License-Identifier: LGPL-3.0-or-later
 #pragma once
 
-#include <memory>
-
 namespace ChimeraTK {
 
   class Application;
 
-  namespace detail {
-    struct LuaModuleManagerImpl;
-  }
-
   /**
-   * Loads and manages Lua-based ApplicationModules declared in the ConfigReader XML file under
+   * Loads Lua-based ApplicationModules declared in the ConfigReader XML file under
    * the \<LuaModules\> section.
    *
-   * Each Lua script executes directly in its module's thread, avoiding the complexity of
-   * state migration between threads.
+   * Each module is created directly under the Application; its Lua script is executed
+   * from the module's own run() method.
    */
   class LuaModuleManager {
    public:
-    /** Construct an empty Lua module manager. */
-    LuaModuleManager();
-    /** Destroy the manager and release any remaining Lua state. */
-    ~LuaModuleManager();
+    LuaModuleManager() = default;
 
     /**
-     * Load all Lua modules listed in the application config under \<LuaModules\>.
+     * Instantiate all Lua modules listed in the application config under \<LuaModules\>.
      *
      * Must be called from the Application constructor before initialise().
      */
     void createModules(Application& app);
 
     /**
-     * Terminate all Lua ApplicationModule threads and release the Lua state.
-     *
-     * Called from Application::shutdown().
+     * No-op retained for symmetry with PythonModuleManager::deinit(). Lua modules are
+     * ApplicationModules and are terminated by Application::shutdown() via the normal
+     * module-lifecycle path, so this manager holds no extra state to release.
      */
-    void deinit();
-
-   private:
-    void init(Application& app);
-
-    std::unique_ptr<detail::LuaModuleManagerImpl> _impl;
+    void deinit() {}
   };
 
 } // namespace ChimeraTK

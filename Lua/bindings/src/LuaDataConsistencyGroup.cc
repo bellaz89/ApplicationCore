@@ -16,7 +16,7 @@ namespace ChimeraTK {
         "historized", DataConsistencyGroup::MatchingMode::historized);
 
     lua.new_usertype<LuaDataConsistencyGroup>("DataConsistencyGroup",
-        sol::constructors<LuaDataConsistencyGroup(DataConsistencyGroup::MatchingMode)>(),
+        sol::call_constructor, sol::constructors<LuaDataConsistencyGroup(DataConsistencyGroup::MatchingMode)>(),
         "add", sol::overload(
             [](LuaDataConsistencyGroup& self, LuaTransferElementBase& acc) { self.add(acc); },
             [](LuaDataConsistencyGroup& self, LuaTransferElementBase& acc, unsigned histLen) {

@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<configuration>
+  <module name="LuaModules">
+    <module name="dcgReceiver">
+      <variable name="path" type="string" value="testLuaDCGReceiver.lua" />
+    </module>
+    <module name="dcgSender">
+      <variable name="path" type="string" value="testLuaDCGSender.lua" />
+    </module>
+  </module>
+</configuration>

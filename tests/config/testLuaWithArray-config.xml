@@ -1,6 +1,6 @@
 <configuration>
     <module name="LuaModules">
-        <module name="AppModule">
+        <module name="SomeName">
             <variable name="path" type="string" value="testLuaWithArray.lua" />
         </module>
     </module>

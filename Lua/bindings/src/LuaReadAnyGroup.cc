@@ -11,7 +11,7 @@ namespace ChimeraTK {
 
   void LuaReadAnyGroup::bind(sol::state& lua) {
     lua.new_usertype<LuaReadAnyGroup>("ReadAnyGroup",
-        sol::constructors<LuaReadAnyGroup()>(),
+        sol::call_constructor, sol::constructors<LuaReadAnyGroup()>(),
         "add", &LuaReadAnyGroup::add,
         "readAny", &LuaReadAnyGroup::readAny,
         "readAnyNonBlocking", &LuaReadAnyGroup::readAnyNonBlocking,

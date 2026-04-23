@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <configuration>
   <module name="LuaModules">
-    <module name="Arith">
-      <variable name="path" type="string" value="testLuaArithmetic.lua" />
+    <module name="UserModule">
+      <variable name="path" type="string" value="testLuaReadAnyGroup.lua" />
     </module>
   </module>
 </configuration>

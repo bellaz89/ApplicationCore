@@ -230,5 +230,86 @@ namespace Tests::testLua {
   }
 
   /********************************************************************************************************************/
+  /* Test ReadAnyGroup binding (port of testPythonReadAnyGroup) */
+
+  BOOST_AUTO_TEST_CASE(testReadAnyGroup) {
+    std::cout << "***************************************************************************************" << std::endl;
+    std::cout << "==> testReadAnyGroup" << std::endl;
+
+    TestApp app("testLuaReadAnyGroup");
+    ctk::TestFacility tf(app);
+
+    auto in1       = tf.getScalar<int32_t>("/UserModule/in1");
+    auto in2       = tf.getArray <int32_t>("/UserModule/in2");
+    auto in3       = tf.getScalar<int32_t>("/UserModule/in3");
+    auto out       = tf.getScalar<std::string>("/UserModule/output");
+    auto testError = tf.getScalar<std::string>("/UserModule/testError");
+
+    tf.runApplication();
+
+    // step1: in1 update is consumed by readAny
+    in1.setAndWrite(12);
+    tf.stepApplication();
+    BOOST_CHECK(out.readNonBlocking());
+    BOOST_TEST(std::string(out) == "step1");
+
+    // step2: in2 update is consumed by readAny
+    in2 = {24, 24, 24, 24};
+    in2.write();
+    tf.stepApplication();
+    BOOST_CHECK(out.readNonBlocking());
+    BOOST_TEST(std::string(out) == "step2");
+
+    // step3: in3 is read directly (not part of the group); group should report no pending updates
+    in3.setAndWrite(36);
+    tf.stepApplication();
+    BOOST_CHECK(out.readNonBlocking());
+    BOOST_TEST(std::string(out) == "step3");
+
+    // step4: readUntil(accessor) form
+    in1.setAndWrite(8);
+    tf.stepApplication();
+    BOOST_CHECK(out.readNonBlocking());
+    BOOST_TEST(std::string(out) == "step4");
+
+    // step5: readUntil(accessor) on the array input
+    in2 = {16, 16, 16, 16};
+    in2.write();
+    tf.stepApplication();
+    BOOST_CHECK(out.readNonBlocking());
+    BOOST_TEST(std::string(out) == "step5");
+
+    // step6: readUntil(id) form
+    in1.setAndWrite(42);
+    tf.stepApplication();
+    BOOST_CHECK(out.readNonBlocking());
+    BOOST_TEST(std::string(out) == "step6");
+
+    BOOST_CHECK(!testError.readNonBlocking());
+    BOOST_TEST(std::string(testError) == "");
+  }
+
+  /********************************************************************************************************************/
+  /* Test DataConsistencyGroup binding (port of testPythonDataConsistencyGroup, simplified) */
+
+  BOOST_AUTO_TEST_CASE(testDataConsistencyGroup) {
+    std::cout << "***************************************************************************************" << std::endl;
+    std::cout << "==> testDataConsistencyGroup" << std::endl;
+
+    TestApp app("testLuaDataConsistencyGroup");
+    ctk::TestFacility tf(app);
+
+    auto testError = tf.getScalar<std::string>("/UserModule/testError");
+
+    tf.runApplication();
+
+    // The sender + receiver run their full sequence inside runApplication's testable-mode
+    // settle phase: prepare() seeds initial values, then both mainLoops drain the queued
+    // updates and the receiver writes its verdict. Mirrors testPythonDataConsistencyGroup.
+    testError.readLatest();
+    BOOST_TEST(std::string(testError) == "ok");
+  }
+
+  /********************************************************************************************************************/
 
 } // namespace Tests::testLua

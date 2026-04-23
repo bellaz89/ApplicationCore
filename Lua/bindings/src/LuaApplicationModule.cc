@@ -14,26 +14,30 @@
 #include <boost/thread.hpp>
 
 #include <fstream>
-#include <iostream>
 
 namespace ChimeraTK {
 
   /********************************************************************************************************************/
 
   LuaApplicationModule::LuaApplicationModule(ModuleGroup* owner, const std::string& name,
-      const std::string& description, const std::string& scriptPath, const std::unordered_set<std::string>& tags)
-  : ApplicationModule(owner, name, description, tags), _scriptPath(scriptPath) {}
+      const std::string& description, const std::string& scriptPath)
+  : ApplicationModule(owner, name, description), _scriptPath(scriptPath) {
+    // Script execution must happen at construction time: the accessors the script creates
+    // register with this module, and the framework needs them to be present before
+    // runApplication() / initialise() wires the control-system PV manager. Running the
+    // script in run() (i.e. at thread-start time) would be too late — TestFacility::getScalar
+    // would fail to find PVs that the script has not yet created.
+    loadScript();
+  }
 
   /********************************************************************************************************************/
 
-  void LuaApplicationModule::run() {
-    // Create the per-module Lua state. Only this module's C++ thread will access it.
+  void LuaApplicationModule::loadScript() {
     _moduleState = std::make_unique<sol::state>();
-
-    // Register all ChimeraTK bindings in the module state
     registerLuaBindings(*_moduleState);
 
-    // Translate boost::thread_interrupted into recognisable Lua error string
+    // Translate boost::thread_interrupted into a recognisable Lua error string so mainLoop() can
+    // distinguish a normal shutdown interrupt from a genuine script error.
     _moduleState->set_exception_handler([](lua_State* L, sol::optional<const std::exception&> /*maybeException*/,
                                             sol::string_view /*description*/) -> int {
       try {
@@ -53,11 +57,10 @@ namespace ChimeraTK {
       }
     });
 
-    // Inject this module instance as a static reference so ApplicationModule() factory can return it
-    // Scripts that call ApplicationModule(app, name, desc) will get this instance back
+    // The Lua ApplicationModule(name, desc) factory returns this pre-existing C++ instance rather
+    // than constructing a new one; it reads _modSelfRef from the global table.
     (*_moduleState)["_modSelfRef"] = std::ref(*this);
 
-    // Load and execute the Lua script file in this thread's state
     std::ifstream scriptFile(_scriptPath);
     if(!scriptFile.good()) {
       throw ChimeraTK::logic_error(
@@ -66,8 +69,8 @@ namespace ChimeraTK {
 
     std::string scriptContent((std::istreambuf_iterator<char>(scriptFile)), std::istreambuf_iterator<char>());
 
-    // Execute the script
-    auto result = _moduleState->safe_script(scriptContent, _scriptPath, sol::script_pass_on_error);
+    // safe_script signature: (code, on_error, chunkname).
+    auto result = _moduleState->safe_script(scriptContent, sol::script_pass_on_error, _scriptPath);
 
     if(!result.valid()) {
       sol::error err = result;
@@ -75,26 +78,28 @@ namespace ChimeraTK {
           std::string("LuaApplicationModule: error executing script '") + _scriptPath + "': " + err.what());
     }
 
-    // Check that the script returned exactly one ApplicationModule (which should be this object)
-    if(result.get_type() == sol::type::nil) {
+    // protected_function_result exposes a narrow API in this sol2 version; go through sol::object.
+    sol::object ret = result.get<sol::object>();
+
+    if(ret.get_type() == sol::type::nil) {
       throw ChimeraTK::logic_error(std::string("LuaApplicationModule: script '") + _scriptPath +
           "' returned nil (must return an ApplicationModule)");
     }
 
-    if(result.get_type() != sol::type::userdata || !result.is<LuaApplicationModule>()) {
+    if(ret.get_type() != sol::type::userdata || !ret.is<LuaApplicationModule>()) {
       throw ChimeraTK::logic_error(std::string("LuaApplicationModule: script '") + _scriptPath +
           "' did not return an ApplicationModule (got " +
-          std::string(sol::type_name(_moduleState->lua_state(), result.get_type())) + ")");
+          std::string(sol::type_name(_moduleState->lua_state(), ret.get_type())) + ")");
     }
 
-    auto& returnedMod = result.as<LuaApplicationModule&>();
-    if(&returnedMod != this) {
+    if(&ret.as<LuaApplicationModule&>() != this) {
       throw ChimeraTK::logic_error(std::string("LuaApplicationModule: script '") + _scriptPath +
           "' returned a different ApplicationModule instance than the one created by the framework");
     }
 
-    // Retrieve the mainLoop function from the returned module
-    sol::object mainLoopObj = result["mainLoop"];
+    // Fields set via `function mod:mainLoop()` land in the userdata's __newindex. Going through
+    // sol::table here dispatches through the usertype's __index to retrieve them.
+    sol::object mainLoopObj = ret.as<sol::table>()["mainLoop"];
 
     if(mainLoopObj.get_type() == sol::type::nil) {
       throw ChimeraTK::logic_error(
@@ -107,18 +112,34 @@ namespace ChimeraTK {
           std::string(sol::type_name(_moduleState->lua_state(), mainLoopObj.get_type())) + ")");
     }
 
-    try {
-      _mainLoopFn = mainLoopObj.as<sol::protected_function>();
-    }
-    catch(const std::exception& e) {
-      throw ChimeraTK::logic_error(std::string("LuaApplicationModule: failed to extract mainLoop from script '") +
-          _scriptPath + "': " + e.what());
-    }
+    _mainLoopFn = mainLoopObj.as<sol::protected_function>();
 
-    // Spawn the module thread via the base class.
-    Application::getInstance().getTestableMode().unlock("releaseForLuaModuleStart");
+    // prepare is optional: scripts that need to seed initial values for push-input consumers
+    // can define `function mod:prepare()`; scripts that don't need it can omit it.
+    sol::object prepareObj = ret.as<sol::table>()["prepare"];
+    if(prepareObj.valid() && prepareObj.get_type() == sol::type::function) {
+      _prepareFn = prepareObj.as<sol::protected_function>();
+    }
+  }
+
+  /********************************************************************************************************************/
+
+  void LuaApplicationModule::prepare() {
+    if(!_prepareFn.valid()) {
+      return;
+    }
+    auto result = _prepareFn(static_cast<LuaApplicationModule*>(this));
+    if(!result.valid()) {
+      sol::error err = result;
+      throw ChimeraTK::logic_error("Lua prepare error in '" + getName() + "': " + std::string(err.what()));
+    }
+  }
+
+  /********************************************************************************************************************/
+
+  void LuaApplicationModule::run() {
+    // Script has already been loaded at construction time. Just start the module thread.
     ApplicationModule::run();
-    Application::getInstance().getTestableMode().lock("acquireForLuaModuleStart", false);
   }
 
   /********************************************************************************************************************/
@@ -135,8 +156,11 @@ namespace ChimeraTK {
         // Normal termination via terminate() -> accessor interrupt()
         return;
       }
-      if(Application::getInstance().getLifeCycleState() == LifeCycleState::shutdown &&
-          msg.find("C++ exception") != std::string_view::npos) {
+      // sol2 reports a non-std::exception (typically boost::thread_interrupted from a blocking
+      // accessor read at shutdown) as the literal string "C++ exception". Treat that as a normal
+      // termination signal — the only code path that throws non-std exceptions across the
+      // sol2 boundary in this binding is the thread interrupt.
+      if(msg.find("C++ exception") != std::string_view::npos) {
         return;
       }
       throw ChimeraTK::logic_error("Lua mainLoop error in '" + getName() + "': " + std::string(msg));
@@ -146,8 +170,9 @@ namespace ChimeraTK {
   /********************************************************************************************************************/
 
   void LuaApplicationModule::terminate() {
+    // ApplicationModule::terminate() joins the module thread, so by the time we
+    // reach _moduleState.reset() no other thread can touch the Lua state.
     ApplicationModule::terminate();
-    std::lock_guard<std::mutex> lock(_mutex);
     _moduleState.reset();
   }
 
@@ -155,7 +180,29 @@ namespace ChimeraTK {
 
   void LuaApplicationModule::bind(sol::state& lua) {
     lua.new_usertype<LuaApplicationModule>(
-        "ApplicationModule", sol::no_constructor, "getName", &LuaApplicationModule::getName, "readAll",
+        "ApplicationModule", sol::no_constructor,
+        // Fallback metamethods for dynamically-assigned fields. sol2 dispatches registered
+        // members first; these only fire for keys that are not bound below — so
+        // `mod:ScalarOutput(...)` still hits the C++ factory, while `mod.myOutput = X` and
+        // `function mod:mainLoop()` land in the companion _attrs table.
+        sol::meta_function::new_index,
+        [](LuaApplicationModule& self, sol::this_state ts, sol::object key, sol::object value) {
+          if(!self._attrs.valid()) {
+            self._attrs = sol::state_view(ts).create_table();
+          }
+          self._attrs[key] = value;
+        },
+        sol::meta_function::index,
+        [](LuaApplicationModule& self, sol::this_state ts, sol::object key) -> sol::object {
+          if(self._attrs.valid()) {
+            sol::object v = self._attrs[key];
+            if(v.valid() && v.get_type() != sol::type::nil) {
+              return v;
+            }
+          }
+          return sol::make_object(ts, sol::lua_nil);
+        },
+        "getName", &LuaApplicationModule::getName, "readAll",
         [](LuaApplicationModule& self, sol::optional<bool> includeReturnChannels) {
           self.readAll(includeReturnChannels.value_or(false));
         },
@@ -170,6 +217,10 @@ namespace ChimeraTK {
         "writeAll",
         [](LuaApplicationModule& self, sol::optional<bool> includeReturnChannels) {
           self.writeAll(includeReturnChannels.value_or(false));
+        },
+        "writeAllDestructively",
+        [](LuaApplicationModule& self, sol::optional<bool> includeReturnChannels) {
+          self.writeAllDestructively(includeReturnChannels.value_or(false));
         },
         "getCurrentVersionNumber", &LuaApplicationModule::getCurrentVersionNumber, "setCurrentVersionNumber",
         &LuaApplicationModule::setCurrentVersionNumber, "getDataValidity", &LuaApplicationModule::getDataValidity,
@@ -220,6 +271,12 @@ namespace ChimeraTK {
           return *self.make_child<LuaArrayAccessor>(
               AccessorTypeTag<ArrayPushInput>{}, type, &self, name, unit, nElements, description);
         },
+        "ArrayPushInputWB",
+        [](LuaApplicationModule& self, ChimeraTK::DataType type, const std::string& name, const std::string& unit,
+            size_t nElements, const std::string& description) -> LuaArrayAccessor& {
+          return *self.make_child<LuaArrayAccessor>(
+              AccessorTypeTag<ArrayPushInputWB>{}, type, &self, name, unit, nElements, description);
+        },
         "ArrayPollInput",
         [](LuaApplicationModule& self, ChimeraTK::DataType type, const std::string& name, const std::string& unit,
             size_t nElements, const std::string& description) -> LuaArrayAccessor& {
@@ -232,16 +289,46 @@ namespace ChimeraTK {
           return *self.make_child<LuaArrayAccessor>(
               AccessorTypeTag<ArrayOutput>{}, type, &self, name, unit, nElements, description);
         },
-        "VoidAccessor",
-        [](LuaApplicationModule& self, const std::string& name) -> LuaVoidAccessor& {
-          return *self.make_child<LuaVoidAccessor>(&self, name);
+        "ArrayOutputPushRB",
+        [](LuaApplicationModule& self, ChimeraTK::DataType type, const std::string& name, const std::string& unit,
+            size_t nElements, const std::string& description) -> LuaArrayAccessor& {
+          return *self.make_child<LuaArrayAccessor>(
+              AccessorTypeTag<ArrayOutputPushRB>{}, type, &self, name, unit, nElements, description);
+        },
+        "ArrayOutputReverseRecovery",
+        [](LuaApplicationModule& self, ChimeraTK::DataType type, const std::string& name, const std::string& unit,
+            size_t nElements, const std::string& description) -> LuaArrayAccessor& {
+          return *self.make_child<LuaArrayAccessor>(
+              AccessorTypeTag<ArrayOutputReverseRecovery>{}, type, &self, name, unit, nElements, description);
+        },
+        "VoidInput",
+        [](LuaApplicationModule& self, const std::string& name, const std::string& description) -> LuaVoidAccessor& {
+          return *self.make_child<LuaVoidAccessor>(VoidTypeTag<VoidInput>{}, &self, name, description);
+        },
+        "VoidOutput",
+        [](LuaApplicationModule& self, const std::string& name, const std::string& description) -> LuaVoidAccessor& {
+          return *self.make_child<LuaVoidAccessor>(VoidTypeTag<VoidOutput>{}, &self, name, description);
+        },
+        "StatusOutput",
+        [](LuaApplicationModule& self, const std::string& name,
+            const std::string& description) -> LuaStatusAccessor& {
+          return *self.make_child<LuaStatusAccessor>(LuaStatusAccessor::OutputTag{}, &self, name, description);
+        },
+        "StatusPushInput",
+        [](LuaApplicationModule& self, const std::string& name,
+            const std::string& description) -> LuaStatusAccessor& {
+          return *self.make_child<LuaStatusAccessor>(LuaStatusAccessor::PushInputTag{}, &self, name, description);
+        },
+        "StatusPollInput",
+        [](LuaApplicationModule& self, const std::string& name,
+            const std::string& description) -> LuaStatusAccessor& {
+          return *self.make_child<LuaStatusAccessor>(LuaStatusAccessor::PollInputTag{}, &self, name, description);
         },
         "VariableGroup",
-        [](LuaApplicationModule& self, const std::string& name) -> LuaVariableGroup& {
-          return *self.make_child<LuaVariableGroup>(&self, name);
-        },
-        "DataConsistencyGroup", [](LuaApplicationModule& self) -> auto { return self.getDataConsistencyGroup(); },
-        "ReadAnyGroup", [](LuaApplicationModule& self) -> auto { return self.getReadAnyGroup(); });
+        [](LuaApplicationModule& self, const std::string& name,
+            const std::string& description) -> LuaVariableGroup& {
+          return *self.make_child<LuaVariableGroup>(&self, name, description);
+        });
 
     // Factory function: ApplicationModule(name, description)
     // This factory function is registered in the module's lua state before script execution.
