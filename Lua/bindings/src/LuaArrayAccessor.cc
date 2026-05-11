@@ -34,7 +34,20 @@ namespace ChimeraTK {
     // Lua is 1-based; C++ buffer is 0-based.
     return std::visit(
         [&](auto& acc) -> sol::object {
-          return sol::make_object(s, acc[static_cast<size_t>(index - 1)]);
+          const size_t n = acc.getNElements();
+          if(index < 1 || static_cast<size_t>(index) > n) {
+            luaL_error(s, "array index %d out of range [1, %zu]", index, n);
+            return sol::object{}; // unreachable; luaL_error longjmps
+          }
+          using ACC = std::remove_reference_t<decltype(acc)>;
+          using T = typename ACC::value_type;
+          // sol2 has no registered conversion for ChimeraTK::Boolean; route through bool.
+          if constexpr(std::is_same_v<T, ChimeraTK::Boolean>) {
+            return sol::make_object(s, static_cast<bool>(acc[static_cast<size_t>(index - 1)]));
+          }
+          else {
+            return sol::make_object(s, acc[static_cast<size_t>(index - 1)]);
+          }
         },
         _accessor);
   }
@@ -44,9 +57,20 @@ namespace ChimeraTK {
   void LuaArrayAccessor::setElement(int index, sol::object val) {
     std::visit(
         [&](auto& acc) {
+          const size_t n = acc.getNElements();
+          if(index < 1 || static_cast<size_t>(index) > n) {
+            luaL_error(val.lua_state(), "array index %d out of range [1, %zu]", index, n);
+            return; // unreachable; luaL_error longjmps
+          }
           using ACC = std::remove_reference_t<decltype(acc)>;
           using T = typename ACC::value_type;
-          acc[static_cast<size_t>(index - 1)] = val.as<T>();
+          // sol2 has no registered conversion for ChimeraTK::Boolean; route through bool.
+          if constexpr(std::is_same_v<T, ChimeraTK::Boolean>) {
+            acc[static_cast<size_t>(index - 1)] = val.as<bool>();
+          }
+          else {
+            acc[static_cast<size_t>(index - 1)] = val.as<T>();
+          }
         },
         _accessor);
   }

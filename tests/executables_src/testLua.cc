@@ -311,5 +311,122 @@ namespace Tests::testLua {
   }
 
   /********************************************************************************************************************/
+  /* Test array accessors for float32, float64, uint32, and string element types */
+
+  BOOST_AUTO_TEST_CASE(testMixedArrays) {
+    std::cout << "***************************************************************************************" << std::endl;
+    std::cout << "==> testMixedArrays" << std::endl;
+
+    TestApp app("testLuaMixedArrays");
+    ctk::TestFacility tf(app);
+
+    auto f32In  = tf.getArray<float>("/MixedArrays/Float32In");
+    auto f32Out = tf.getArray<float>("/MixedArrays/Float32Out");
+    auto f64In  = tf.getArray<double>("/MixedArrays/Float64In");
+    auto f64Out = tf.getArray<double>("/MixedArrays/Float64Out");
+    auto u32In  = tf.getArray<uint32_t>("/MixedArrays/Uint32In");
+    auto u32Out = tf.getArray<uint32_t>("/MixedArrays/Uint32Out");
+    auto strIn  = tf.getArray<std::string>("/MixedArrays/StringIn");
+    auto strOut = tf.getArray<std::string>("/MixedArrays/StringOut");
+
+    tf.setArrayDefault<double>     ("/MixedArrays/Float64In", {10.0, 20.0, 30.0});
+    tf.setArrayDefault<uint32_t>   ("/MixedArrays/Uint32In",  {100,  200,  300});
+    tf.setArrayDefault<std::string>("/MixedArrays/StringIn",  {"hello", "world", "lua"});
+
+    tf.runApplication();
+
+    // Step 1: trigger with float32, poll inputs use their defaults
+    f32In = {1.0f, 2.0f, 3.0f};
+    f32In.write();
+    tf.stepApplication();
+
+    BOOST_TEST(f32Out.readNonBlocking());
+    BOOST_TEST(std::vector<float>(f32Out) == std::vector<float>({2.0f, 4.0f, 6.0f}),
+        boost::test_tools::per_element());
+
+    BOOST_TEST(f64Out.readNonBlocking());
+    BOOST_TEST(std::vector<double>(f64Out) == std::vector<double>({11.0, 21.0, 31.0}),
+        boost::test_tools::per_element());
+
+    BOOST_TEST(u32Out.readNonBlocking());
+    BOOST_TEST(std::vector<uint32_t>(u32Out) == std::vector<uint32_t>({110, 210, 310}),
+        boost::test_tools::per_element());
+
+    BOOST_TEST(strOut.readNonBlocking());
+    BOOST_TEST(std::vector<std::string>(strOut) ==
+        std::vector<std::string>({"hello_out", "world_out", "lua_out"}),
+        boost::test_tools::per_element());
+
+    // Step 2: update poll inputs from the CS side, trigger again
+    f64In = {5.0, 6.0, 7.0};          f64In.write();
+    u32In = {50, 60, 70};              u32In.write();
+    strIn = {"a", "b", "c"};           strIn.write();
+    f32In = {10.0f, 20.0f, 30.0f};    f32In.write();
+    tf.stepApplication();
+
+    BOOST_TEST(f32Out.readNonBlocking());
+    BOOST_TEST(std::vector<float>(f32Out) == std::vector<float>({20.0f, 40.0f, 60.0f}),
+        boost::test_tools::per_element());
+
+    BOOST_TEST(f64Out.readNonBlocking());
+    BOOST_TEST(std::vector<double>(f64Out) == std::vector<double>({6.0, 7.0, 8.0}),
+        boost::test_tools::per_element());
+
+    BOOST_TEST(u32Out.readNonBlocking());
+    BOOST_TEST(std::vector<uint32_t>(u32Out) == std::vector<uint32_t>({60, 70, 80}),
+        boost::test_tools::per_element());
+
+    BOOST_TEST(strOut.readNonBlocking());
+    BOOST_TEST(std::vector<std::string>(strOut) ==
+        std::vector<std::string>({"a_out", "b_out", "c_out"}),
+        boost::test_tools::per_element());
+  }
+
+  /********************************************************************************************************************/
+  /* Test boolean array accessors: getElement, setElement, toTable, fromTable */
+
+  BOOST_AUTO_TEST_CASE(testBoolArrays) {
+    std::cout << "***************************************************************************************" << std::endl;
+    std::cout << "==> testBoolArrays" << std::endl;
+
+    TestApp app("testLuaBoolArray");
+    ctk::TestFacility tf(app);
+
+    auto boolIn    = tf.getArray<ctk::Boolean>("/BoolArray/BoolIn");
+    auto boolOut   = tf.getArray<ctk::Boolean>("/BoolArray/BoolOut");
+    auto testError = tf.getScalar<std::string>("/BoolArray/TestError");
+
+    tf.runApplication();
+
+    // Initial write used getElement/setElement: all false (default) in → all true out
+    boolOut.readLatest();
+    for(size_t i = 0; i < 4; ++i) {
+      BOOST_TEST(static_cast<bool>(boolOut[i]) == true);
+    }
+
+    // Step 1 (odd): getElement/setElement path
+    boolIn = {true, false, true, false};
+    boolIn.write();
+    tf.stepApplication();
+    BOOST_TEST(boolOut.readNonBlocking());
+    std::vector<bool> expected1 = {false, true, false, true};
+    for(size_t i = 0; i < 4; ++i) {
+      BOOST_TEST(static_cast<bool>(boolOut[i]) == expected1[i]);
+    }
+
+    // Step 2 (even): toTable/fromTable path
+    boolIn = {false, false, true, true};
+    boolIn.write();
+    tf.stepApplication();
+    BOOST_TEST(boolOut.readNonBlocking());
+    std::vector<bool> expected2 = {true, true, false, false};
+    for(size_t i = 0; i < 4; ++i) {
+      BOOST_TEST(static_cast<bool>(boolOut[i]) == expected2[i]);
+    }
+
+    BOOST_TEST(testError.readNonBlocking() == false);
+  }
+
+  /********************************************************************************************************************/
 
 } // namespace Tests::testLua

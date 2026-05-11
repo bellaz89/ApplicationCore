@@ -1,0 +1,7 @@
+<configuration>
+    <module name="LuaModules">
+        <module name="MixedArrays">
+            <variable name="path" type="string" value="testLuaMixedArrays.lua" />
+        </module>
+    </module>
+</configuration>
