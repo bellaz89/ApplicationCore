@@ -27,8 +27,19 @@ namespace ChimeraTK {
   /********************************************************************************************************************/
 
   void registerLuaBindings(sol::state& lua) {
-    lua.open_libraries(sol::lib::base, sol::lib::package, sol::lib::string, sol::lib::table, sol::lib::math, sol::lib::io, sol::lib::os,
-        sol::lib::debug);
+    lua.open_libraries(sol::lib::base, sol::lib::package, sol::lib::coroutine, sol::lib::string, sol::lib::table, sol::lib::math,
+        sol::lib::io, sol::lib::os, sol::lib::debug
+#if defined(CHIMERATK_LUA_IS_LUAJIT)
+        ,
+        sol::lib::bit32, sol::lib::jit, sol::lib::ffi
+#elif LUA_VERSION_NUM == 502
+        ,
+        sol::lib::bit32
+#elif LUA_VERSION_NUM >= 503
+        ,
+        sol::lib::utf8
+#endif
+    );
 
     // ---- DataType -------------------------------------------------------
     // Register the C++ type so sol2 knows its metatable (needed to pass DataType values to C++ factory functions).
