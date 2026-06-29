@@ -74,12 +74,15 @@ if(ENABLE_LUA_BINDINGS)
   endif()
 
   if(_lua_found)
-    include(FetchContent)
-    FetchContent_Declare(sol2
-      GIT_REPOSITORY https://github.com/ThePhD/sol2.git
-      GIT_TAG v3.3.0
-      GIT_SHALLOW TRUE)
-    FetchContent_MakeAvailable(sol2)
+    find_package(sol2 CONFIG QUIET)
+    if(NOT sol2_FOUND)
+      include(FetchContent)
+      FetchContent_Declare(sol2
+        GIT_REPOSITORY https://github.com/ThePhD/sol2.git
+        GIT_TAG v3.3.0
+        GIT_SHALLOW TRUE)
+      FetchContent_MakeAvailable(sol2)
+    endif()
   else()
     set(ENABLE_LUA_BINDINGS OFF CACHE BOOL "Enable Lua scripting bindings" FORCE)
   endif()
