@@ -429,4 +429,42 @@ namespace Tests::testLua {
 
   /********************************************************************************************************************/
 
+  /* Test fillTable(t) / fillTable(t, n) and the refactored toTable() */
+
+  BOOST_AUTO_TEST_CASE(testFillTable) {
+    std::cout << "***************************************************************************************" << std::endl;
+    std::cout << "==> testFillTable" << std::endl;
+
+    TestApp app("testLuaFillTable");
+    ctk::TestFacility tf(app);
+
+    auto arrIn    = tf.getArray<int32_t>("/FillTable/ArrIn");
+    auto arrOut   = tf.getArray<int32_t>("/FillTable/ArrOut");
+    auto testError = tf.getScalar<std::string>("/FillTable/TestError");
+
+    tf.runApplication();
+
+    // Step 1: send {1, 2, 3, 4, 5} — Lua doubles each element into ArrOut.
+    arrIn = {1, 2, 3, 4, 5};
+    arrIn.write();
+    tf.stepApplication();
+    BOOST_TEST(arrOut.readNonBlocking());
+    std::vector<int32_t> expected1 = {2, 4, 6, 8, 10};
+    BOOST_TEST(std::vector<int32_t>(arrOut) == expected1, boost::test_tools::per_element());
+    BOOST_TEST(testError.readNonBlocking() == false);
+    BOOST_TEST(std::string(testError) == "");
+
+    // Step 2: different values to verify the reusable-table path works across iterations.
+    arrIn = {10, 20, 30, 40, 50};
+    arrIn.write();
+    tf.stepApplication();
+    BOOST_TEST(arrOut.readNonBlocking());
+    std::vector<int32_t> expected2 = {20, 40, 60, 80, 100};
+    BOOST_TEST(std::vector<int32_t>(arrOut) == expected2, boost::test_tools::per_element());
+    BOOST_TEST(testError.readNonBlocking() == false);
+    BOOST_TEST(std::string(testError) == "");
+  }
+
+  /********************************************************************************************************************/
+
 } // namespace Tests::testLua

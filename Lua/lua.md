@@ -190,6 +190,7 @@ end
 
 -- Bulk conversion (one variant dispatch regardless of length):
 local copy = arr:toTable()         -- C++ buffer → fresh 1-based Lua table
+arr:fillTable(pre, n)              -- C++ buffer → pre-existing table (n optional; default = getNElements())
 arr:fromTable({1, 2, 3, 4})        -- Lua table → C++ buffer
 ```
 

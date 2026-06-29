@@ -153,6 +153,20 @@ function ArrayAccessor:readAndGet() end
 ---@return integer
 function ArrayAccessor:getNElements() end
 
+---Copy all elements into a fresh 1-based Lua table (one C++ dispatch).
+---@return table
+function ArrayAccessor:toTable() end
+
+---Fill a pre-existing 1-based Lua table in-place with up to maxN elements.
+---Avoids allocation on every call; prefer over toTable() in hot loops.
+---@param t    table
+---@param maxN? integer   number of elements to copy (default: getNElements())
+function ArrayAccessor:fillTable(t, maxN) end
+
+---Bulk-write all elements from a 1-based Lua table into the C++ buffer.
+---@param t table
+function ArrayAccessor:fromTable(t) end
+
 -- Array element access via [] — uses __index / __newindex metamethods.
 -- Indices are 1-based (Lua convention).
 

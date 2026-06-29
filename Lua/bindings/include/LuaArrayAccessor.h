@@ -56,6 +56,16 @@ namespace ChimeraTK {
     sol::table toTable(sol::this_state s) const;
 
     /**
+     * Fill a pre-existing 1-based Lua table in-place with the first maxN elements
+     * (defaulting to getNElements() when maxN is absent).  The table is grown as needed.
+     * Returns nothing; the caller keeps its reference to t.
+     *
+     * Prefer this over toTable() in hot loops: it avoids allocating a new Lua table
+     * on every call and therefore reduces GC pressure at high DAQ rates.
+     */
+    void fillTable(sol::table t, std::optional<size_t> maxN = std::nullopt) const;
+
+    /**
      * Bulk-write all elements from a 1-based Lua table into the array buffer.
      *
      * Symmetric counterpart to toTable: a single std::visit replaces N individual

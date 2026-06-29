@@ -92,16 +92,14 @@ namespace ChimeraTK {
 
   /********************************************************************************************************************/
 
-  sol::table LuaArrayAccessor::toTable(sol::this_state s) const {
-    // Single std::visit for the whole array: avoids one dispatch + one sol::make_object per element
-    // compared to calling getElement() in a Lua loop.
-    return std::visit(
+  void LuaArrayAccessor::fillTable(sol::table t, std::optional<size_t> maxN) const {
+    // Single std::visit for the whole range: one C++ dispatch regardless of n.
+    std::visit(
         [&](auto& acc) {
           using ACC = std::remove_reference_t<decltype(acc)>;
           using T = typename ACC::value_type;
-          sol::state_view sv(s);
-          const size_t n = acc.getNElements();
-          sol::table t = sv.create_table(static_cast<int>(n), 0);
+          const size_t accN = static_cast<size_t>(acc.getNElements());
+          const size_t n = maxN.has_value() ? std::min(maxN.value(), accN) : accN;
           for(size_t i = 0; i < n; ++i) {
             if constexpr(std::is_same_v<T, ChimeraTK::Boolean>) {
               t[i + 1] = static_cast<bool>(acc[i]);
@@ -110,9 +108,18 @@ namespace ChimeraTK {
               t[i + 1] = acc[i];
             }
           }
-          return t;
         },
         _accessor);
+  }
+
+  /********************************************************************************************************************/
+
+  sol::table LuaArrayAccessor::toTable(sol::this_state s) const {
+    // Delegate to fillTable so both paths share the same inner loop.
+    sol::state_view sv(s);
+    sol::table t = sv.create_table(static_cast<int>(getNElements()), 0);
+    fillTable(t, std::nullopt);
+    return t;
   }
 
   /********************************************************************************************************************/
@@ -148,6 +155,7 @@ namespace ChimeraTK {
         "readLatest", &LuaArrayAccessor::readLatest,
         "readAndGet", &LuaArrayAccessor::readAndGet,
         "toTable", &LuaArrayAccessor::toTable,
+        "fillTable", &LuaArrayAccessor::fillTable,
         "fromTable", &LuaArrayAccessor::fromTable,
         "write", &LuaArrayAccessor::write,
         "writeDestructively", &LuaArrayAccessor::writeDestructively,
